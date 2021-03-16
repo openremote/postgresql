@@ -1,6 +1,6 @@
 # This is a basic workflow to help you get started with Actions
 
-name: build multirach postgresql Docker image and push to it dockerhub
+name: Docker Image
 
 # Controls when the action will run. 
 on:
@@ -25,6 +25,9 @@ jobs:
     
     steps:
       - uses: actions/checkout@v2
+      - name: Set tag
+        if: github.event.inputs.tag != ''
+        run: echo "TAG=${{ github.event.inputs.tag || env.TAG }}" >> $GITHUB_ENV
       - name: set up QEMU
         uses: docker/setup-qemu-action@v1
         with:
