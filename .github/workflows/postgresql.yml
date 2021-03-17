@@ -13,6 +13,10 @@ on:
 
   # Trigger on push for latest build
   push:
+    tags:
+      - '!**'
+    branches:
+      - main
  
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
@@ -29,8 +33,7 @@ jobs:
           access_token: ${{ github.token }}
       - uses: actions/checkout@v2
       - name: Set tag
-        if: github.event.inputs.tag != ''
-        run: echo "TAG=${{ github.event.inputs.tag || env.TAG }}" >> $GITHUB_ENV
+        run: echo "TAG=${{ github.event.release.tag_name || env.TAG }}" >> $GITHUB_ENV
       - name: set up QEMU
         uses: docker/setup-qemu-action@v1
         with:
@@ -47,4 +50,4 @@ jobs:
         run: echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USER }}" --password-stdin
       - name: build and push images
         run: |
-          docker build --push --platform $PLATFORM -t openremote/postgresql:$TAG .
+          docker build --build-arg GIT_COMMIT=${{ github.sha }} --push --platform $PLATFORM -t openremote/postgresql:$TAG .
