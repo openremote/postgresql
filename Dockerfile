@@ -13,6 +13,12 @@ MAINTAINER support@openremote.io
 ENV POSTGIS_VERSION 3.2.0
 ENV POSTGIS_SHA256 c725d1be6d57ad199bbb6393cc3546defb70de1c78fe1787f7ccef2d51c3647b
 
+ENV TZ ${TZ:-Europe/Amsterdam}
+ENV PGTZ ${PGTZ:-Europe/Amsterdam}
+ENV POSTGRES_DB ${POSTGRES_DB:-openremote}
+ENV POSTGRES_USER ${POSTGRES_USER:-postgres}
+ENV POSTGRES_PASSWORD ${POSTGRES_PASSWORD:-postgres}
+
 #Temporary fix:
 #   for PostGIS 2.* - building a special geos
 #   reason:  PostGIS 2.5.5 is not working with GEOS 3.9.*
