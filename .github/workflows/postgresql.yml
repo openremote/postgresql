@@ -22,7 +22,7 @@ on:
 jobs:
   image_postgresql:
     env:
-      PLATFORM: linux/amd64,linux/arm64,linux/arm/v7,linux/arm/v6
+      PLATFORM: linux/amd64,linux/arm64
       TAG: latest
       
     runs-on: ubuntu-latest
