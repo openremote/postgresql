@@ -4,14 +4,11 @@ name: Docker Image
 
 # Controls when the action will run. 
 on:
-  # Manually trigger for a release
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'What tag should be used for the release.'
-        required: true
+  # When a release is published
+  release:
+    types: [published]
 
-  # Trigger on push for latest build
+  # Trigger on push for latest build ignoring tag pushes
   push:
     tags:
       - '!**'
@@ -21,6 +18,7 @@ on:
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   image_postgresql:
+  
     env:
       PLATFORM: linux/amd64,linux/arm64
       TAG: latest
@@ -31,9 +29,9 @@ jobs:
       - uses: styfle/cancel-workflow-action@0.8.0
         with:
           access_token: ${{ github.token }}
-      - uses: actions/checkout@v2
       - name: Set tag
         run: echo "TAG=${{ github.event.release.tag_name || env.TAG }}" >> $GITHUB_ENV
+      - uses: actions/checkout@v2
       - name: set up QEMU
         uses: docker/setup-qemu-action@v1
         with:
