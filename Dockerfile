@@ -18,6 +18,7 @@ ENV PGTZ ${PGTZ:-Europe/Amsterdam}
 ENV POSTGRES_DB ${POSTGRES_DB:-openremote}
 ENV POSTGRES_USER ${POSTGRES_USER:-postgres}
 ENV POSTGRES_PASSWORD ${POSTGRES_PASSWORD:-postgres}
+ENV PGUSER "$POSTGRES_USER"
 
 #Temporary fix:
 #   for PostGIS 2.* - building a special geos
