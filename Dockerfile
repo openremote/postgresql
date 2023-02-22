@@ -45,7 +45,7 @@ RUN mkdir timescaledb-toolkit && \
 RUN cd timescaledb-toolkit/extension && \
     cargo pgx install -v --release
 
-RUN cargo run -v --manifest-path ../tools/post-install/Cargo.toml -- pg_config
+RUN cargo run -v --manifest-path timescaledb-toolkit/tools/post-install/Cargo.toml -- pg_config
 
 
 
@@ -72,6 +72,11 @@ ENV PGUSER "$POSTGRES_USER"
 COPY --from=toolkit-tools /usr/local/share/postgresql/extension/timescaledb_toolkit* /usr/local/share/postgresql/extension/
 COPY --from=toolkit-tools /usr/local/lib/postgresql/timescaledb_toolkit* /usr/local/lib/postgresql/
 
+# Dependency versions copied from docker-postgis
+ENV GEOS_ALPINE_VER 3.11
+ENV GDAL_ALPINE_VER 3.5
+ENV PROJ_ALPINE_VER 9.1
+
 # PostGIS steps
 RUN set -eux \
     \
@@ -81,7 +86,7 @@ RUN set -eux \
         tar \
     \
     && wget -O postgis.tar.gz "https://github.com/postgis/postgis/archive/${POSTGIS_VERSION}.tar.gz" \
-    && echo "$POSTGIS_SHA256 *postgis.tar.gz" | sha256sum -c - \
+    && echo "${POSTGIS_SHA256} *postgis.tar.gz" | sha256sum -c - \
     && mkdir -p /usr/src/postgis \
     && tar \
         --extract \
@@ -91,44 +96,26 @@ RUN set -eux \
     && rm postgis.tar.gz \
     \
     && apk add --no-cache --virtual .build-deps \
+        \
+        gdal-dev~=${GDAL_ALPINE_VER} \
+        geos-dev~=${GEOS_ALPINE_VER} \
+        proj-dev~=${PROJ_ALPINE_VER} \
+        \
         autoconf \
         automake \
         clang-dev \
         file \
         g++ \
         gcc \
-        gdal-dev \
         gettext-dev \
         json-c-dev \
         libtool \
         libxml2-dev \
-        llvm15-dev \
+        llvm-dev \
         make \
         pcre-dev \
         perl \
-        proj-dev \
         protobuf-c-dev \
-     \
-# GEOS setup
-     && if   [ $(printf %.1s "$POSTGIS_VERSION") == 3 ]; then \
-            apk add --no-cache --virtual .build-deps-geos geos-dev cunit-dev ; \
-        elif [ $(printf %.1s "$POSTGIS_VERSION") == 2 ]; then \
-            apk add --no-cache --virtual .build-deps-geos cmake git ; \
-            cd /usr/src ; \
-            git clone https://github.com/libgeos/geos.git ; \
-            cd geos ; \
-            git checkout ${POSTGIS2_GEOS_VERSION} -b geos_build ; \
-            mkdir cmake-build ; \
-            cd cmake-build ; \
-                cmake -DCMAKE_BUILD_TYPE=Release .. ; \
-                make -j$(nproc) ; \
-                make check ; \
-                make install ; \
-            cd / ; \
-            rm -fr /usr/src/geos ; \
-        else \
-            echo ".... unknown PosGIS ...." ; \
-        fi \
     \
 # build PostGIS
     \
@@ -149,25 +136,33 @@ RUN set -eux \
     && make -j$(nproc) check RUNTESTFLAGS=--extension   PGUSER=postgres \
     #&& make -j$(nproc) check RUNTESTFLAGS=--dumprestore PGUSER=postgres \
     #&& make garden                                      PGUSER=postgres \
+    \
+    && su postgres -c 'psql    -c "CREATE EXTENSION IF NOT EXISTS postgis;"' \
+    && su postgres -c 'psql -t -c "SELECT version();"'              >> /_pgis_full_version.txt \
+    && su postgres -c 'psql -t -c "SELECT PostGIS_Full_Version();"' >> /_pgis_full_version.txt \
+    \
     && su postgres -c 'pg_ctl -D /tempdb --mode=immediate stop' \
     && rm -rf /tempdb \
     && rm -rf /tmp/pgis_reg \
 # add .postgis-rundeps
     && apk add --no-cache --virtual .postgis-rundeps \
-        gdal \
+        \
+        gdal~=${GDAL_ALPINE_VER} \
+        geos~=${GEOS_ALPINE_VER} \
+        proj~=${PROJ_ALPINE_VER} \
+        \
         json-c \
         libstdc++ \
         pcre \
-        proj \
         protobuf-c \
-     # Geos setup
-     && if [ $(printf %.1s "$POSTGIS_VERSION") == 3 ]; then \
-            apk add --no-cache --virtual .postgis-rundeps-geos geos ; \
-        fi \
+        \
+        # ca-certificates: for accessing remote raster files
+        #   fix https://github.com/postgis/docker-postgis/issues/307
+        ca-certificates \
 # clean
     && cd / \
     && rm -rf /usr/src/postgis \
-    && apk del .fetch-deps .build-deps .build-deps-geos
+    && apk del .fetch-deps .build-deps
 
 COPY ./initdb-postgis.sh /docker-entrypoint-initdb.d/10_postgis.sh
 COPY ./update-postgis.sh /usr/local/bin
