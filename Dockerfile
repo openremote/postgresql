@@ -1,17 +1,65 @@
-# -----------------------------------------------------------------------------------------------
-# POST GIS image built for aarch64 support using alternative base image, copied from:
+######################################################################################################
+# Custom Dockerfile that builds Postgres with TimescaleDB and Postgis, made by OpenRemote.
 #
-#    https://github.com/postgis/docker-postgis/blob/master/14-3.2/alpine/Dockerfile
+# Based on several sources such as docker-postgis dockerfile, TimescaleDBs official documentation,
+# and several GitHub issues where users are troubleshooting their docerfiles.
 #
-# See this issue for aarch64 support:
-# 
-#    https://github.com/postgis/docker-postgis/issues/216
-# -----------------------------------------------------------------------------------------------
-FROM postgres:14-alpine3.14
-MAINTAINER support@openremote.io
+# Using Alpine 3.17
+#####################################################################################################
 
-ENV POSTGIS_VERSION 3.2.0
-ENV POSTGIS_SHA256 c725d1be6d57ad199bbb6393cc3546defb70de1c78fe1787f7ccef2d51c3647b
+
+#--------------------------------------------------
+# Building TimescaleDB toolkit, which requires manual build of Rust source code.
+# Practicing Docker multi-stage builds (https://docs.docker.com/build/building/multi-stage/)
+# to reduce image size by only copying over necessary files without any SDKs.
+#
+# Required a lot of finetuning versions / build steps, but seems to run solid.
+# Based on https://github.com/timescale/timescaledb-toolkit/issues/344#issuecomment-1045939452, which is
+# similar to the official documentation: https://github.com/timescale/timescaledb-toolkit#-installing-from-source
+#--------------------------------------------------
+FROM timescale/timescaledb:2.9.3-pg14 AS toolkit-tools
+
+ENV TOOLKIT_VERSION 1.14.0
+
+RUN apk add --no-cache clang14 pkgconfig openssl-dev gcc postgresql14-dev curl jq make musl-dev
+
+RUN chown postgres /usr/local/share/postgresql/extension /usr/local/lib/postgresql
+
+USER postgres
+ENV PATH="/var/lib/postgresql/.cargo/bin:${PATH}" RUSTFLAGS='-C target-feature=-crt-static'
+WORKDIR /var/lib/postgresql
+
+# Cargo installation
+# Using seperate RUN statements here to maximize use of cache
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --profile=minimal -c rustfmt
+
+RUN cargo install cargo-pgx --version '=0.6.1'
+
+RUN cargo pgx init -v --pg14 `which pg_config`
+
+# Downloading toolkit
+RUN mkdir timescaledb-toolkit && \
+    curl -s -L `curl -s https://api.github.com/repos/timescale/timescaledb-toolkit/releases/tags/${TOOLKIT_VERSION} | jq -r ".tarball_url"` | tar -zx -C timescaledb-toolkit --strip-components 1
+
+# Installing toolkit
+RUN cd timescaledb-toolkit/extension && \
+    cargo pgx install -v --release
+
+RUN cargo run -v --manifest-path ../tools/post-install/Cargo.toml -- pg_config
+
+
+
+#--------------------------------------------------
+# Building final image by combining TimescaleDB with its toolkit and PostGIS extension.
+#
+# PostGIS image built for aarch64 support using alternative base image, copied from
+# https://github.com/postgis/docker-postgis/blob/master/14-3.2/alpine/Dockerfile.
+# See this issue for aarch64 support: https://github.com/postgis/docker-postgis/issues/216
+#--------------------------------------------------
+FROM timescale/timescaledb:2.9.3-pg14 AS final
+
+ENV POSTGIS_VERSION 3.3.2
+ENV POSTGIS_SHA256 2a6858d1df06de1c5f85a5b780773e92f6ba3a5dc09ac31120ac895242f5a77b
 
 ENV TZ ${TZ:-Europe/Amsterdam}
 ENV PGTZ ${PGTZ:-Europe/Amsterdam}
@@ -20,11 +68,11 @@ ENV POSTGRES_USER ${POSTGRES_USER:-postgres}
 ENV POSTGRES_PASSWORD ${POSTGRES_PASSWORD:-postgres}
 ENV PGUSER "$POSTGRES_USER"
 
-#Temporary fix:
-#   for PostGIS 2.* - building a special geos
-#   reason:  PostGIS 2.5.5 is not working with GEOS 3.9.*
-ENV POSTGIS2_GEOS_VERSION tags/3.8.2
+# Copying over TimescaleDB Toolkit
+COPY --from=toolkit-tools /usr/local/share/postgresql/extension/timescaledb_toolkit* /usr/local/share/postgresql/extension/
+COPY --from=toolkit-tools /usr/local/lib/postgresql/timescaledb_toolkit* /usr/local/lib/postgresql/
 
+# PostGIS steps
 RUN set -eux \
     \
     && apk add --no-cache --virtual .fetch-deps \
@@ -32,7 +80,7 @@ RUN set -eux \
         openssl \
         tar \
     \
-    && wget -O postgis.tar.gz "https://github.com/postgis/postgis/archive/$POSTGIS_VERSION.tar.gz" \
+    && wget -O postgis.tar.gz "https://github.com/postgis/postgis/archive/${POSTGIS_VERSION}.tar.gz" \
     && echo "$POSTGIS_SHA256 *postgis.tar.gz" | sha256sum -c - \
     && mkdir -p /usr/src/postgis \
     && tar \
@@ -54,7 +102,7 @@ RUN set -eux \
         json-c-dev \
         libtool \
         libxml2-dev \
-        llvm11-dev \
+        llvm15-dev \
         make \
         pcre-dev \
         perl \
