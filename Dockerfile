@@ -10,6 +10,9 @@
 # Bitnami Image of TimescaleDB that includes PostGIS 3.1.8
 FROM timescale/timescaledb:2.10.0-pg14-bitnami
 
+# Versions for init scripts to use
+ENV PG_MAJOR 14
+
 ENV TZ ${TZ:-Europe/Amsterdam}
 ENV PGTZ ${PGTZ:-Europe/Amsterdam}
 ENV POSTGRES_DB ${POSTGRES_DB:-openremote}
