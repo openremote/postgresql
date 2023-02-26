@@ -8,7 +8,7 @@
 #####################################################################################################
 
 # Bitnami Image of TimescaleDB that includes PostGIS 3.1.8
-FROM timescale/timescaledb:2.9.3-pg14-bitnami
+FROM timescale/timescaledb:2.10.0-pg14-bitnami
 
 ENV TZ ${TZ:-Europe/Amsterdam}
 ENV PGTZ ${PGTZ:-Europe/Amsterdam}
