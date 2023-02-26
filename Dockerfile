@@ -36,4 +36,5 @@ COPY --from=timescale/timescaledb-ha:pg14-ts2.9-latest /usr/lib/postgresql/14/li
 COPY ./000_install_timescaledb.sh /docker-entrypoint-initdb.d/001_install_timescaledb.sh
 COPY ./001_timescaledb_tune.sh /docker-entrypoint-initdb.d/002_timescaledb_tune.sh
 
+# Healthcheck using PSQL command
 HEALTHCHECK --interval=3s --timeout=3s --start-period=2s --retries=30 CMD pg_isready
