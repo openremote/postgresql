@@ -1,17 +1,14 @@
-# -----------------------------------------------------------------------------------------------
-# POST GIS image built for aarch64 support using alternative base image, copied from:
+######################################################################################################
+# Custom Dockerfile that builds Postgres with TimescaleDB and Postgis, made by OpenRemote.
 #
-#    https://github.com/postgis/docker-postgis/blob/master/14-3.2/alpine/Dockerfile
+# Based on several sources such as docker-postgis dockerfile, TimescaleDBs official documentation,
+# and several GitHub issues where users are troubleshooting their docerfiles.
 #
-# See this issue for aarch64 support:
-# 
-#    https://github.com/postgis/docker-postgis/issues/216
-# -----------------------------------------------------------------------------------------------
-FROM postgres:14-alpine3.14
-MAINTAINER support@openremote.io
+# Using Debian Bullseye (11)
+#####################################################################################################
 
-ENV POSTGIS_VERSION 3.2.0
-ENV POSTGIS_SHA256 c725d1be6d57ad199bbb6393cc3546defb70de1c78fe1787f7ccef2d51c3647b
+# Bitnami Image of TimescaleDB that includes PostGIS 3.1.8
+FROM timescale/timescaledb:2.9.3-pg14-bitnami
 
 ENV TZ ${TZ:-Europe/Amsterdam}
 ENV PGTZ ${PGTZ:-Europe/Amsterdam}
@@ -20,108 +17,20 @@ ENV POSTGRES_USER ${POSTGRES_USER:-postgres}
 ENV POSTGRES_PASSWORD ${POSTGRES_PASSWORD:-postgres}
 ENV PGUSER "$POSTGRES_USER"
 
-#Temporary fix:
-#   for PostGIS 2.* - building a special geos
-#   reason:  PostGIS 2.5.5 is not working with GEOS 3.9.*
-ENV POSTGIS2_GEOS_VERSION tags/3.8.2
-
-RUN set -eux \
-    \
-    && apk add --no-cache --virtual .fetch-deps \
-        ca-certificates \
-        openssl \
-        tar \
-    \
-    && wget -O postgis.tar.gz "https://github.com/postgis/postgis/archive/$POSTGIS_VERSION.tar.gz" \
-    && echo "$POSTGIS_SHA256 *postgis.tar.gz" | sha256sum -c - \
-    && mkdir -p /usr/src/postgis \
-    && tar \
-        --extract \
-        --file postgis.tar.gz \
-        --directory /usr/src/postgis \
-        --strip-components 1 \
-    && rm postgis.tar.gz \
-    \
-    && apk add --no-cache --virtual .build-deps \
-        autoconf \
-        automake \
-        clang-dev \
-        file \
-        g++ \
-        gcc \
-        gdal-dev \
-        gettext-dev \
-        json-c-dev \
-        libtool \
-        libxml2-dev \
-        llvm11-dev \
-        make \
-        pcre-dev \
-        perl \
-        proj-dev \
-        protobuf-c-dev \
-     \
-# GEOS setup
-     && if   [ $(printf %.1s "$POSTGIS_VERSION") == 3 ]; then \
-            apk add --no-cache --virtual .build-deps-geos geos-dev cunit-dev ; \
-        elif [ $(printf %.1s "$POSTGIS_VERSION") == 2 ]; then \
-            apk add --no-cache --virtual .build-deps-geos cmake git ; \
-            cd /usr/src ; \
-            git clone https://github.com/libgeos/geos.git ; \
-            cd geos ; \
-            git checkout ${POSTGIS2_GEOS_VERSION} -b geos_build ; \
-            mkdir cmake-build ; \
-            cd cmake-build ; \
-                cmake -DCMAKE_BUILD_TYPE=Release .. ; \
-                make -j$(nproc) ; \
-                make check ; \
-                make install ; \
-            cd / ; \
-            rm -fr /usr/src/geos ; \
-        else \
-            echo ".... unknown PosGIS ...." ; \
-        fi \
-    \
-# build PostGIS
-    \
-    && cd /usr/src/postgis \
-    && gettextize \
-    && ./autogen.sh \
-    && ./configure \
-        --with-pcredir="$(pcre-config --prefix)" \
-    && make -j$(nproc) \
-    && make install \
-    \
-# regress check
-    && mkdir /tempdb \
-    && chown -R postgres:postgres /tempdb \
-    && su postgres -c 'pg_ctl -D /tempdb init' \
-    && su postgres -c 'pg_ctl -D /tempdb start' \
-    && cd regress \
-    && make -j$(nproc) check RUNTESTFLAGS=--extension   PGUSER=postgres \
-    #&& make -j$(nproc) check RUNTESTFLAGS=--dumprestore PGUSER=postgres \
-    #&& make garden                                      PGUSER=postgres \
-    && su postgres -c 'pg_ctl -D /tempdb --mode=immediate stop' \
-    && rm -rf /tempdb \
-    && rm -rf /tmp/pgis_reg \
-# add .postgis-rundeps
-    && apk add --no-cache --virtual .postgis-rundeps \
-        gdal \
-        json-c \
-        libstdc++ \
-        pcre \
-        proj \
-        protobuf-c \
-     # Geos setup
-     && if [ $(printf %.1s "$POSTGIS_VERSION") == 3 ]; then \
-            apk add --no-cache --virtual .postgis-rundeps-geos geos ; \
-        fi \
-# clean
-    && cd / \
-    && rm -rf /usr/src/postgis \
-    && apk del .fetch-deps .build-deps .build-deps-geos
-
+# Running PostGIS initialization scripts
+# Copied from https://github.com/postgis/docker-postgis/tree/9f1f1baadddd06a8d1b9c9f7316278f5a82dfb96/14-3.3
+RUN mkdir -p /docker-entrypoint-initdb.d
 COPY ./initdb-postgis.sh /docker-entrypoint-initdb.d/10_postgis.sh
 COPY ./update-postgis.sh /usr/local/bin
+
+# Copying over TimescaleDB Toolkit, specifically only version 1.13.0
+COPY --from=timescale/timescaledb-ha:pg14-ts2.9-latest /usr/share/postgresql/14/extension/timescaledb_toolkit--1.13.0.sql /opt/bitnami/postgresql/share/extension/timescaledb_toolkit--1.13.0.sql
+COPY --from=timescale/timescaledb-ha:pg14-ts2.9-latest /usr/share/postgresql/14/extension/timescaledb_toolkit.control /opt/bitnami/postgresql/share/extension/timescaledb_toolkit.control
+COPY --from=timescale/timescaledb-ha:pg14-ts2.9-latest /usr/lib/postgresql/14/lib/timescaledb_toolkit-1.13.0.so /opt/bitnami/postgresql/lib/timescaledb_toolkit-1.13.0.so
+
+# Running TimescaleDBs initialization scripts
+# Copied from https://github.com/timescale/timescaledb-docker/tree/main/docker-entrypoint-initdb.d
+COPY ./000_install_timescaledb.sh /docker-entrypoint-initdb.d/001_install_timescaledb.sh
+COPY ./001_timescaledb_tune.sh /docker-entrypoint-initdb.d/002_timescaledb_tune.sh
 
 HEALTHCHECK --interval=3s --timeout=3s --start-period=2s --retries=30 CMD pg_isready
