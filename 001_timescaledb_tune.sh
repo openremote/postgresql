@@ -6,6 +6,14 @@ TS_TUNE_NUM_CPUS=${TS_TUNE_NUM_CPUS:-""}
 TS_TUNE_MAX_CONNS=${TS_TUNE_MAX_CONNS:-""}
 TS_TUNE_MAX_BG_WORKERS=${TS_TUNE_MAX_BG_WORKERS:-""}
 
+# Custom code to prevent unset variables
+TS_TUNE_MEMORY_FLAGS=${TS_TUNE_MEMORY_FLAGS:-""}
+TS_TUNE_NUM_CPUS_FLAGS=${TS_TUNE_NUM_CPUS_FLAGS:-""}
+TS_TUNE_MAX_CONNS_FLAGS=${TS_TUNE_MAX_CONNS_FLAGS:-""}
+TS_TUNE_MAX_BG_WORKERS_FLAGS=${TS_TUNE_MAX_BG_WORKERS_FLAGS:-""}
+TS_TUNE_PG_VERSION=${TS_TUNE_PG_VERSION:-""}
+
+
 if [ ! -z "${NO_TS_TUNE:-}" ]; then
     # The user has explicitly requested not to run timescaledb-tune; exit this script
     exit 0
