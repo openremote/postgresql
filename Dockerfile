@@ -1,8 +1,8 @@
 ######################################################################################################
 # Custom Dockerfile that builds Postgres with TimescaleDB and Postgis
 # Based on https://github.com/timescale/timescaledb-docker-ha/blob/80b71545b7ff5163ac940982b9e811ee053d6ba7/Dockerfile
-#
 # Removed dependencies that were not necessary for use of OpenRemote.
+#
 # Uses Ubuntu 22.04, since Alpine and Debian did not serve glibc 2.33+
 #
 #####################################################################################################
@@ -16,7 +16,7 @@ ARG PG_MAJOR=14
 # pg_upgrade from one major version to another
 ARG PG_VERSIONS="14"
 ARG POSTGIS_VERSIONS="3"
-ARG TS_VERSIONS="2.9.2"
+ARG TS_VERSIONS="2.10.0"
 ARG TOOLKIT_VERSION=1.13.0
 
 
@@ -296,3 +296,6 @@ RUN chmod 755 "${PGROOT}"
 WORKDIR /home/postgres
 EXPOSE 5432 8008 8081
 USER postgres
+
+# Healthcheck using PSQL command
+HEALTHCHECK --interval=3s --timeout=3s --start-period=2s --retries=30 CMD pg_isready
