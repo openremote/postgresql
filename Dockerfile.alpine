@@ -1,0 +1,44 @@
+# -----------------------------------------------------------------------------------------------
+# POSTGIS and TimescaleDB (inc. toolkit for hyperfunctions) image built for aarch64 support
+# using alpine base image.
+# 
+# timescale/timescaledb-ha image is ubuntu based and only currently supports amd64; they are
+# working on ARM64 support in timescaledev/timescaledb-ha see:
+#
+#     https://github.com/timescale/timescaledb-docker-ha/pull/355
+#
+# See this issue for POSTGIS base image aarch64 support discussion:
+# 
+#    https://github.com/postgis/docker-postgis/issues/216
+# -------   ----------------------------------------------------------------------------------------
+
+# We get POSTGIS and timescale+toolkit from this image
+FROM timescaledev/timescaledb-ha:pg15-multi as timescale-ha
+
+
+# This base image is alpine based - timescale toolkit requires glibc 2.3+ so we install it into alpine image
+# This still doesn't work as timescale code is compiled against glibc and some references don't match with gcompat
+
+FROM timescale/timescaledb:latest-pg15
+MAINTAINER support@openremote.io
+
+ENV GLIBC_VERSION 2.35-r0
+ENV TZ ${TZ:-Europe/Amsterdam}
+ENV PGTZ ${PGTZ:-Europe/Amsterdam}
+ENV POSTGRES_DB ${POSTGRES_DB:-openremote}
+ENV POSTGRES_USER ${POSTGRES_USER:-postgres}
+ENV POSTGRES_PASSWORD ${POSTGRES_PASSWORD:-postgres}
+
+# Add glibc
+RUN apk add gcompat
+
+
+COPY --from=timescale-ha /usr/lib/postgresql/15/lib/bitcode/postgis-3/ /usr/local/lib/postgresql/bitcode/
+COPY --from=timescale-ha /usr/lib/postgresql/15/lib/postgis* /usr/local/lib/postgresql/
+COPY --from=timescale-ha /docker-entrypoint-initdb.d/010_install_timescaledb_toolkit.sh /docker-entrypoint-initdb.d/010_install_timescaledb_toolkit.sh
+COPY --from=timescale-ha /usr/lib/postgresql/15/lib/timescaledb* /usr/local/lib/postgresql/
+COPY --from=timescale-ha /usr/bin/timescale* /usr/local/bin/
+COPY --from=timescale-ha /usr/share/postgresql/15/extension/postgis* /usr/local/share/postgresql/extension/
+COPY --from=timescale-ha /usr/share/postgresql/15/extension/timescale* /usr/local/share/postgresql/extension/
+
+HEALTHCHECK --interval=3s --timeout=3s --start-period=2s --retries=30 CMD pg_isready
