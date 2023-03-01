@@ -187,6 +187,7 @@ COPY build_scripts /build/scripts
 ARG TS_VERSIONS
 RUN if [ "${GITHUB_TAG}" != "" ]; then TS_VERSIONS="${GITHUB_TAG}"; fi \
     && cd /build/timescaledb && git pull \
+    && chmod +x /build/scripts/install_timescaledb.sh \
     && set -e \
     && for pg in ${PG_VERSIONS}; do \
         /build/scripts/install_timescaledb.sh ${pg} ${TS_VERSIONS} || exit 1 ; \
