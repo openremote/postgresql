@@ -1,127 +1,63 @@
 # -----------------------------------------------------------------------------------------------
-# POST GIS image built for aarch64 support using alternative base image, copied from:
+# POSTGIS and TimescaleDB (inc. toolkit for hyperfunctions) image built for aarch64 support
+# using alpine base image.
+# 
+# timescale/timescaledb-ha image is ubuntu based and only currently supports amd64; they are
+# working on ARM64 support in timescaledev/timescaledb-ha see:
 #
-#    https://github.com/postgis/docker-postgis/blob/master/14-3.2/alpine/Dockerfile
+#     https://github.com/timescale/timescaledb-docker-ha/pull/355
 #
-# See this issue for aarch64 support:
+# See this issue for POSTGIS base image aarch64 support discussion:
 # 
 #    https://github.com/postgis/docker-postgis/issues/216
-# -----------------------------------------------------------------------------------------------
-FROM postgres:14-alpine3.14
+# -------   ----------------------------------------------------------------------------------------
+
+# TODO: Switch over to timescale/timescaledb-ha once arm64 supported
+# We get POSTGIS and timescale+toolkit from this image
+FROM timescaledev/timescaledb-ha:pg14-multi as trimmed
 MAINTAINER support@openremote.io
 
-ENV POSTGIS_VERSION 3.2.0
-ENV POSTGIS_SHA256 c725d1be6d57ad199bbb6393cc3546defb70de1c78fe1787f7ccef2d51c3647b
+USER root
 
+# Give postgres user the same UID and GID as the old alpine postgres image to simplify migration of existing DB
+RUN usermod -u 70 postgres \
+ && groupmod -g 70 postgres \
+ && (find / -group 1000 -exec chgrp -h postgres {} \; || true) \
+ && (find / -user 1000 -exec chown -h postgres {} \; || true)
+
+
+# Below is copied from https://github.com/timescale/timescaledb-docker-ha/blob/master/Dockerfile
+# to minimise the size of this image
+## Create a smaller Docker image from the builder image
+FROM scratch
+COPY --from=trimmed / /
+
+ARG PG_MAJOR=14
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["postgres"]
+
+ENV PGROOT=/home/postgres \
+    PGDATA=/home/postgres/pgdata/data \
+    PGLOG=/home/postgres/pg_log \
+    PGSOCKET=/home/postgres/pgdata \
+    BACKUPROOT=/home/postgres/pgdata/backup \
+    PGBACKREST_CONFIG=/home/postgres/pgdata/backup/pgbackrest.conf \
+    PGBACKREST_STANZA=poddb \
+    PATH=/usr/lib/postgresql/${PG_MAJOR}/bin:${PATH} \
+    LC_ALL=C.UTF-8 \
+    LANG=C.UTF-8 \
+    # When having an interactive psql session, it is useful if the PAGER is disable
+    PAGER=""
+
+WORKDIR /home/postgres
+EXPOSE 5432 8008 8081
+USER postgres
+
+## ADD OR convenience default ENV values and healthcheck
 ENV TZ ${TZ:-Europe/Amsterdam}
 ENV PGTZ ${PGTZ:-Europe/Amsterdam}
 ENV POSTGRES_DB ${POSTGRES_DB:-openremote}
 ENV POSTGRES_USER ${POSTGRES_USER:-postgres}
 ENV POSTGRES_PASSWORD ${POSTGRES_PASSWORD:-postgres}
-ENV PGUSER "$POSTGRES_USER"
-
-#Temporary fix:
-#   for PostGIS 2.* - building a special geos
-#   reason:  PostGIS 2.5.5 is not working with GEOS 3.9.*
-ENV POSTGIS2_GEOS_VERSION tags/3.8.2
-
-RUN set -eux \
-    \
-    && apk add --no-cache --virtual .fetch-deps \
-        ca-certificates \
-        openssl \
-        tar \
-    \
-    && wget -O postgis.tar.gz "https://github.com/postgis/postgis/archive/$POSTGIS_VERSION.tar.gz" \
-    && echo "$POSTGIS_SHA256 *postgis.tar.gz" | sha256sum -c - \
-    && mkdir -p /usr/src/postgis \
-    && tar \
-        --extract \
-        --file postgis.tar.gz \
-        --directory /usr/src/postgis \
-        --strip-components 1 \
-    && rm postgis.tar.gz \
-    \
-    && apk add --no-cache --virtual .build-deps \
-        autoconf \
-        automake \
-        clang-dev \
-        file \
-        g++ \
-        gcc \
-        gdal-dev \
-        gettext-dev \
-        json-c-dev \
-        libtool \
-        libxml2-dev \
-        llvm11-dev \
-        make \
-        pcre-dev \
-        perl \
-        proj-dev \
-        protobuf-c-dev \
-     \
-# GEOS setup
-     && if   [ $(printf %.1s "$POSTGIS_VERSION") == 3 ]; then \
-            apk add --no-cache --virtual .build-deps-geos geos-dev cunit-dev ; \
-        elif [ $(printf %.1s "$POSTGIS_VERSION") == 2 ]; then \
-            apk add --no-cache --virtual .build-deps-geos cmake git ; \
-            cd /usr/src ; \
-            git clone https://github.com/libgeos/geos.git ; \
-            cd geos ; \
-            git checkout ${POSTGIS2_GEOS_VERSION} -b geos_build ; \
-            mkdir cmake-build ; \
-            cd cmake-build ; \
-                cmake -DCMAKE_BUILD_TYPE=Release .. ; \
-                make -j$(nproc) ; \
-                make check ; \
-                make install ; \
-            cd / ; \
-            rm -fr /usr/src/geos ; \
-        else \
-            echo ".... unknown PosGIS ...." ; \
-        fi \
-    \
-# build PostGIS
-    \
-    && cd /usr/src/postgis \
-    && gettextize \
-    && ./autogen.sh \
-    && ./configure \
-        --with-pcredir="$(pcre-config --prefix)" \
-    && make -j$(nproc) \
-    && make install \
-    \
-# regress check
-    && mkdir /tempdb \
-    && chown -R postgres:postgres /tempdb \
-    && su postgres -c 'pg_ctl -D /tempdb init' \
-    && su postgres -c 'pg_ctl -D /tempdb start' \
-    && cd regress \
-    && make -j$(nproc) check RUNTESTFLAGS=--extension   PGUSER=postgres \
-    #&& make -j$(nproc) check RUNTESTFLAGS=--dumprestore PGUSER=postgres \
-    #&& make garden                                      PGUSER=postgres \
-    && su postgres -c 'pg_ctl -D /tempdb --mode=immediate stop' \
-    && rm -rf /tempdb \
-    && rm -rf /tmp/pgis_reg \
-# add .postgis-rundeps
-    && apk add --no-cache --virtual .postgis-rundeps \
-        gdal \
-        json-c \
-        libstdc++ \
-        pcre \
-        proj \
-        protobuf-c \
-     # Geos setup
-     && if [ $(printf %.1s "$POSTGIS_VERSION") == 3 ]; then \
-            apk add --no-cache --virtual .postgis-rundeps-geos geos ; \
-        fi \
-# clean
-    && cd / \
-    && rm -rf /usr/src/postgis \
-    && apk del .fetch-deps .build-deps .build-deps-geos
-
-COPY ./initdb-postgis.sh /docker-entrypoint-initdb.d/10_postgis.sh
-COPY ./update-postgis.sh /usr/local/bin
 
 HEALTHCHECK --interval=3s --timeout=3s --start-period=2s --retries=30 CMD pg_isready
