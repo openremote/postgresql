@@ -26,6 +26,9 @@ RUN usermod -u 70 postgres \
  && (find / -user 1000 -exec chown -h postgres {} \; || true)
 
 
+# Set PGDATA to the same location as our old alpine image
+RUN mkdir -p /var/lib/postgresql && mv /home/postgres/pgdata/* /var/lib/postgresql/ && chown -R postgres:postgres /var/lib/postgresql
+
 # Below is copied from https://github.com/timescale/timescaledb-docker-ha/blob/master/Dockerfile
 # to minimise the size of this image
 ## Create a smaller Docker image from the builder image
@@ -36,12 +39,12 @@ ARG PG_MAJOR=14
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["postgres"]
 
-ENV PGROOT=/home/postgres \
-    PGDATA=/home/postgres/pgdata/data \
-    PGLOG=/home/postgres/pg_log \
-    PGSOCKET=/home/postgres/pgdata \
-    BACKUPROOT=/home/postgres/pgdata/backup \
-    PGBACKREST_CONFIG=/home/postgres/pgdata/backup/pgbackrest.conf \
+ENV PGROOT=/var/lib/postgresql \
+    PGDATA=/var/lib/postgresql/data \
+    PGLOG=/var/lib/postgresql/pg_log \
+    PGSOCKET=/var/lib/postgresql \
+    BACKUPROOT=/var/lib/postgresql/backup \
+    PGBACKREST_CONFIG=/var/lib/postgresql/backup/pgbackrest.conf \
     PGBACKREST_STANZA=poddb \
     PATH=/usr/lib/postgresql/${PG_MAJOR}/bin:${PATH} \
     LC_ALL=C.UTF-8 \
@@ -49,7 +52,7 @@ ENV PGROOT=/home/postgres \
     # When having an interactive psql session, it is useful if the PAGER is disable
     PAGER=""
 
-WORKDIR /home/postgres
+WORKDIR /var/lib/postgresql
 EXPOSE 5432 8008 8081
 USER postgres
 
