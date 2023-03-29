@@ -17,8 +17,9 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
     else
         echo "Adding shared_preload_libraries = 'timescaledb' to postgresql.conf"
         echo "shared_preload_libraries = 'timescaledb'" >> "$PGDATA/postgresql.conf"
+        echo "timescaledb.telemetry_level=off" >> "$PGDATA/postgresql.conf"
     fi
-    
+
     # Do re-indexing check
     if [ "$OR_DISABLE_REINDEX" == 'true' ] || [ -z "$OR_REINDEX_COUNTER" ]; then
         echo "REINDEX check is disabled"
@@ -28,8 +29,11 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
         if [ -f "$REINDEX_FILE" ]; then
             echo "REINDEX file '$REINDEX_FILE' already exists so no re-indexing required"
         else
-            echo "REINDEX file '$REINDEX_FILE' doesn't exist so re-indexing the DB..."
+            echo "REINDEX file '$REINDEX_FILE' doesn't exist"
             docker_temp_server_start "$@"
+            echo "Running timescaledb tune script..."
+            /docker-entrypoint-initdb.d/001_timescaledb_tune.sh
+            echo "Re-indexing the DB..."
             docker_process_sql -c "REINDEX database $POSTGRES_DB;"
             docker_temp_server_stop
             echo 'REINDEX completed!'
