@@ -28,7 +28,7 @@
 
 # TODO: Switch over to timescale/timescaledb-ha once arm64 supported
 # We get POSTGIS and timescale+toolkit from this image
-FROM timescaledev/timescaledb-ha:pg14-multi as trimmed
+FROM timescaledev/timescaledb-ha:pg15-multi as trimmed
 MAINTAINER support@openremote.io
 
 USER root
@@ -59,14 +59,14 @@ RUN chmod +x /docker-entrypoint-initdb.d/*
 FROM scratch
 COPY --from=trimmed / /
 
-ARG PG_MAJOR=14
+ARG PG_MAJOR=15
 
 # Increment this to indicate that a re-index should be carried out on first startup with existing data; REINDEX can still be overidden
 # with OR_DISABLE_REINDEX=true
 ARG OR_REINDEX_COUNTER=1
 
-ENTRYPOINT ["/or-entrypoint.sh"]
-CMD ["postgres"]
+ENTRYPOINT ["/bin/sh", "-c", "/or-entrypoint.sh postgres -c max_connections=${POSTGRES_MAX_CONNECTIONS}"]
+#postgres -c "max_connections=${POSTGRES_MAX_CONNECTIONS}"
 
 ENV PGROOT=/var/lib/postgresql \
     PGDATA=/var/lib/postgresql/data \
@@ -87,7 +87,8 @@ ENV PGROOT=/var/lib/postgresql \
     POSTGRES_USER=${POSTGRES_USER:-postgres} \
     POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres} \
     OR_REINDEX_COUNTER=${OR_REINDEX_COUNTER} \
-    OR_DISABLE_REINDEX=${OR_DISABLE_REINDEX:-false}
+    OR_DISABLE_REINDEX=${OR_DISABLE_REINDEX:-false} \
+	POSTGRES_MAX_CONNECTIONS=${POSTGRES_MAX_CONNECTIONS:-50}
 
 WORKDIR /var/lib/postgresql
 EXPOSE 5432 8008 8081
