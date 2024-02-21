@@ -1,35 +1,12 @@
-# -----------------------------------------------------------------------------------------------
-# POSTGIS and TimescaleDB (inc. toolkit for hyperfunctions) image built for aarch64 support
-# using timescaledev/timescaledb-ha base image with:
-#
-# - OR specific ENV variables and a healthcheck added
-# - PGDATA path set to match old Alpine image (for ease of DB migration)
-# - POSTGRES user UID and GID changed to match old Alpine image (for ease of DB migration)
-# - OR_DISABLE_REINDEX env variable with associated scripts to determine if a REINDEX of the entire DB should be carried
-#   out at first startup with existing DB (checks whether or not $PGDATA/OR_REINDEX_COUNTER.$OR_REINDEX_COUNTER exists).
-#   This is used when a collation change has occurred (glibc version change, muslc <-> glibc) which can break the indexes;
-#   migration can either be manually handled or auto handled depending on OR_DISABLE_REINDEX env variable value.
-#   NOTE THAT A REINDEX CAN TAKE A LONG TIME DEPENDING ON THE SIZE OF THE DB! And startup will be delayed until completed
-#   This functionality is intended to simplify migration for basic users; advanced users with large DBs should take care of this
-#   themselves.
-#
-#
-#
-# 
-# timescale/timescaledb-ha image is ubuntu based and only currently supports amd64; they are
-# working on ARM64 support in timescaledev/timescaledb-ha see:
-#
-#     https://github.com/timescale/timescaledb-docker-ha/pull/355
-#
-# See this issue for POSTGIS base image aarch64 support discussion:
-# 
-#    https://github.com/postgis/docker-postgis/issues/216
-# -------   ----------------------------------------------------------------------------------------
 
-# TODO: Switch over to timescale/timescaledb-ha once arm64 supported
-# We get POSTGIS and timescale+toolkit from this image
+ARG PG_MAJOR_PREVIOUS=14
+ARG PG_MAJOR=15
+
 FROM timescaledev/timescaledb-ha:pg15-multi as trimmed
 MAINTAINER support@openremote.io
+
+ARG PG_MAJOR_PREVIOUS
+ARG PG_MAJOR
 
 USER root
 
@@ -54,12 +31,22 @@ RUN chmod +x /docker-entrypoint-initdb.d/*
 # Below is mostly copied from https://github.com/timescale/timescaledb-docker-ha/blob/master/Dockerfile (with OR specific entrypoint,
 # workdir and OR env defaults)
 
+# Get multi all image
+FROM timescaledev/timescaledb-ha:pg15-multi-all as trimmed-all
+
+ARG PG_MAJOR_PREVIOUS
+ARG PG_MAJOR
 
 ## Create a smaller Docker image from the builder image
 FROM scratch
 COPY --from=trimmed / /
 
-ARG PG_MAJOR=15
+ARG PG_MAJOR_PREVIOUS
+ARG PG_MAJOR
+
+## Copy previous PG MAJOR version executable
+COPY --from=trimmed-all /usr/lib/postgresql/${PG_MAJOR_PREVIOUS} /usr/lib/postgresql/${PG_MAJOR_PREVIOUS}
+COPY --from=trimmed-all /usr/share/postgresql/${PG_MAJOR_PREVIOUS} /usr/share/postgresql/${PG_MAJOR_PREVIOUS}
 
 # Increment this to indicate that a re-index should be carried out on first startup with existing data; REINDEX can still be overidden
 # with OR_DISABLE_REINDEX=true
@@ -86,9 +73,11 @@ ENV PGROOT=/var/lib/postgresql \
     POSTGRES_DB=${POSTGRES_DB:-openremote} \
     POSTGRES_USER=${POSTGRES_USER:-postgres} \
     POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres} \
+    PG_MAJOR=$PG_MAJOR \
     OR_REINDEX_COUNTER=${OR_REINDEX_COUNTER} \
     OR_DISABLE_REINDEX=${OR_DISABLE_REINDEX:-false} \
-	POSTGRES_MAX_CONNECTIONS=${POSTGRES_MAX_CONNECTIONS:-50}
+    POSTGRES_MAX_CONNECTIONS=${POSTGRES_MAX_CONNECTIONS:-50} \
+    OR_DISABLE_AUTO_UPGRADE=${OR_DISABLE_AUTO_UPGRADE:-false}
 
 WORKDIR /var/lib/postgresql
 EXPOSE 5432 8008 8081
