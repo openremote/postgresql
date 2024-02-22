@@ -9,14 +9,24 @@ docker_setup_env
 
 if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
 
+    echo "-----------------------------------------"
+	echo "Performing checks on existing database..."
+	echo "-----------------------------------------"
+
     # Make sure timescaledb library is set to preload (won't work otherwise)
+	echo "---------------------------------------------------------------------------------------"
     echo "Existing postgresql.conf found checking for shared_preload_libraries = 'timescaledb'..."       
+	echo "---------------------------------------------------------------------------------------"
     RESULT=$(cat "$PGDATA/postgresql.conf" | grep "^shared_preload_libraries = 'timescaledb'" || true)
 
     if [ -n "$RESULT" ]; then
+	    echo "-------------------------------------------"
         echo "Timescale DB library already set to preload"
+		echo "-------------------------------------------"
     else
+		echo "------------------------------------------------------------------"
         echo "Adding shared_preload_libraries = 'timescaledb' to postgresql.conf"
+		echo "------------------------------------------------------------------"
         echo "shared_preload_libraries = 'timescaledb'" >> "$PGDATA/postgresql.conf"
         echo "timescaledb.telemetry_level=off" >> "$PGDATA/postgresql.conf"
     fi
@@ -31,12 +41,18 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       DB_VERSION=$(cat "${PGDATA}/PG_VERSION")
     fi
 
+    if [ "$DB_VERSION" != "$PG_MAJOR" ]  && [ "$OR_DISABLE_AUTO_UPGRADE" == "true" ]; then
+      echo "---------------------------------------------------------------------------------"
+      echo "Postgres major version has changed but OR_DISABLE_AUTO_UPGRADE=true so container will likely fail to start!"
+      echo "---------------------------------------------------------------------------------"
+    fi
+
     # Try and upgrade if needed
     if [ "$DB_VERSION" != "$PG_MAJOR" ] && [ "$OR_DISABLE_AUTO_UPGRADE" != "true" ]; then
 
-      echo "----------------------------------------------------------------------"
+      echo "---------------------------------------------------------------------------------"
       echo "Postgres major version is newer than the existing DB, performing auto upgrade..."
-      echo "----------------------------------------------------------------------"
+      echo "---------------------------------------------------------------------------------"
 
       if [ ! -d "/usr/lib/postgresql/${DB_VERSION}" ]; then
         echo "Postgres executable version '$DB_VERSION' is not included in this image so cannot auto upgrade"
@@ -158,11 +174,15 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "Copying the old pg_hba and pg_ident configuration files is complete"
       echo "-------------------------------------------------------------------"
 
+      # Don't automatically abort on non-0 exit status
+      set +e
+
       # Copy any reindex counter files
       echo "--------------------------------------------------------------"
-      echo "Copying reindex files across"
+      echo "Copying reindex and TS version files across"
       echo "--------------------------------------------------------------"
       cp -f ${OLD}/OR_REINDEX_* ${PGDATA}
+      cp -f ${OLD}/TS_VERSION ${PGDATA}
       echo "-------------------------------------------------------------------"
       echo "Copying reindex files is complete"
       echo "-------------------------------------------------------------------"
@@ -171,9 +191,7 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "---------------------------------"
       echo "Removing left over database files"
       echo "---------------------------------"
-      set +e
       rm -rf "${OLD}" "${NEW}" delete_old_cluster.sh
-      set -e
       echo "---------------------------------------------"
       echo "Removing left over database files is complete"
       echo "---------------------------------------------"
@@ -181,27 +199,130 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "**********************************************************"
       echo "Automatic upgrade process finished with no errors reported"
       echo "**********************************************************"
+
+      # Return the error handling back to automatically aborting on non-0 exit status
+      set -e
     fi
 
-    # Do re-indexing check
-    if [ "$OR_DISABLE_REINDEX" == 'true' ] || [ -z "$OR_REINDEX_COUNTER" ]; then
-        echo "REINDEX check is disabled"
+    # Do timescale upgrade if needed - First look for latest extension version number in extension files
+	echo "----------------------------------------------------------"
+	echo "Checking latest available TimescaleDB extension version..."
+	echo "----------------------------------------------------------"
+	TS_VERSION_REGEX="\-\-([0-9|\.]+)\."
+	TS_SCRIPT_NAME=$(find /usr/share/postgresql/$PG_MAJOR/extension/ -type f -name "timescaledb--*.sql" | sort | tail -n 1)
+	TS_VERSION=""
+	TS_VERSION_FILE="${PGDATA}/OR_TS_VERSION"
+
+	if [ "$TS_SCRIPT_NAME" == "" ] || ! [[ $TS_SCRIPT_NAME =~ $TS_VERSION_REGEX ]]; then
+	  echo "------------------------------------------------------"
+	  echo "Cannot determine current TimescaleDB extension version"
+	  echo "------------------------------------------------------"
+	  exit 15
     else
-        echo "Checking whether REINDEX is required..."
-        REINDEX_FILE="$PGDATA/OR_REINDEX_COUNTER.$OR_REINDEX_COUNTER"
-        if [ -f "$REINDEX_FILE" ]; then
-            echo "REINDEX file '$REINDEX_FILE' already exists so no re-indexing required"
-        else
-            echo "REINDEX file '$REINDEX_FILE' doesn't exist"
-            docker_temp_server_start "$@"
-            echo "Running timescaledb tune script..."
-            /docker-entrypoint-initdb.d/001_timescaledb_tune.sh
-            echo "Re-indexing the DB..."
-            docker_process_sql -c "REINDEX database $POSTGRES_DB;"
-            docker_temp_server_stop
-            echo 'REINDEX completed!'
-            touch "$REINDEX_FILE"
-        fi
+	  TS_VERSION=${BASH_REMATCH[1]}
+	fi
+
+	if [ "$TS_VERSION" == "" ]; then
+	  echo "------------------------------------------------------"
+	  echo "Cannot determine current TimescaleDB extension version"
+	  echo "------------------------------------------------------"
+	  exit 15
+	fi
+
+    DO_TS_UPGRADE=false
+    echo "Checking whether Timescale needs upgrading..."
+    if [ ! -f "${TS_VERSION_FILE}" ]; then
+	  echo "-----------------------------------------------------"
+      echo "No OR_TS_VERSION file so assuming upgrade is required"
+	  echo "-----------------------------------------------------"
+      DO_TS_UPGRADE=true
+    else
+	  echo "-------------------------------------------------------"
+      echo "Getting version number from existing OR_TS_VERSION file"
+	  echo "-------------------------------------------------------"
+      PREVIOUS_TS_VERSION=$(cat "$TS_VERSION_FILE")
+      if [ "${PREVIOUS_TS_VERSION}" != "${TS_VERSION}" ]; then
+	    echo "------------------------------------------------------------------------------"
+        echo "TimescaleDB extension upgrade required ${PREVIOUS_TS_VERSION} -> ${TS_VERSION}"
+		echo "------------------------------------------------------------------------------"
+        DO_TS_UPGRADE=true
+	  else
+	    echo "----------------------------------------------------"
+	    echo "TimescaleDB extension is up to date at: ${TS_VERSION}"
+		echo "----------------------------------------------------"
+      fi
+    fi
+
+    if [ "$DO_TS_UPGRADE" == "true" ]  && [ "$OR_DISABLE_AUTO_UPGRADE" == "true" ]; then
+      echo "----------------------------------------------------------------------------------"
+      echo "TimescaleDB upgrade can be performed but OR_DISABLE_AUTO_UPGRADE=true so skipping!"
+      echo "----------------------------------------------------------------------------------"
+    fi
+
+    if [ "${OR_DISABLE_AUTO_UPGRADE}" == "true" ]; then
+      DO_TS_UPGRADE=false
+    fi
+
+
+    # Do re-indexing check
+    DO_REINDEX=false
+    if [ "$OR_DISABLE_REINDEX" == 'true' ] || [ -z "$OR_REINDEX_COUNTER" ]; then
+	  echo "----------------------------"
+      echo "OR_REINDEX check is disabled"
+	  echo "----------------------------"
+    else
+	  echo "---------------------------------------"
+      echo "Checking whether REINDEX is required..."
+	  echo "---------------------------------------"
+      REINDEX_FILE="$PGDATA/OR_REINDEX_COUNTER.$OR_REINDEX_COUNTER"
+      if [ -f "$REINDEX_FILE" ]; then
+	    echo "-------------------------------------------------------------------------"
+        echo "REINDEX file '$REINDEX_FILE' already exists so no re-indexing required"
+		echo "-------------------------------------------------------------------------"
+      else
+	    echo "-------------------------------------------------------------------------"
+        echo "REINDEX file '$REINDEX_FILE' doesn't exist so re-indexing required"
+		echo "-------------------------------------------------------------------------"
+        DO_REINDEX=true
+      fi
+    fi
+
+    if [ "$DO_REINDEX" == "true" ] || [ "$DO_TS_UPGRADE" == "true" ]; then
+	  echo "-------------------------"
+      echo "Starting temporary server"
+	  echo "-------------------------"
+      docker_temp_server_start "$@"
+
+	  # Cannot do this on a running DB as the extension is configured to preload
+      if [ "$DO_TS_UPGRADE" == "true" ]; then
+	    echo "------------------------"
+        echo "Performing TS upgrade..."
+		echo "------------------------"
+        docker_process_sql -X -c "ALTER EXTENSION timescaledb UPDATE;"
+        docker_process_sql -c "CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit; ALTER EXTENSION timescaledb_toolkit UPDATE;"
+
+        echo "-------------------"
+        echo "TS upgrade complete"
+		echo "-------------------"
+        echo "$TS_VERSION" > "${PGDATA}/OR_TS_VERSION"
+      fi
+
+      if [ "$DO_REINDEX" == "true" ]; then
+	    echo "----------------------------------"
+        echo "Running timescaledb tune script..."
+		echo "----------------------------------"
+        /docker-entrypoint-initdb.d/001_timescaledb_tune.sh
+		echo "---------------------"
+        echo "Re-indexing the DB..."
+		echo "---------------------"
+        docker_process_sql -c "REINDEX database $POSTGRES_DB;"
+		echo "------------------"
+        echo "REINDEX completed!"
+		echo "------------------"
+        touch "$REINDEX_FILE"
+      fi
+
+      docker_temp_server_stop
     fi
 fi
 

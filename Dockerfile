@@ -5,9 +5,6 @@ ARG PG_MAJOR=15
 FROM timescaledev/timescaledb-ha:pg15-multi as trimmed
 MAINTAINER support@openremote.io
 
-ARG PG_MAJOR_PREVIOUS
-ARG PG_MAJOR
-
 USER root
 
 # Give postgres user the same UID and GID as the old alpine postgres image to simplify migration of existing DB
@@ -33,9 +30,6 @@ RUN chmod +x /docker-entrypoint-initdb.d/*
 
 # Get multi all image
 FROM timescaledev/timescaledb-ha:pg15-multi-all as trimmed-all
-
-ARG PG_MAJOR_PREVIOUS
-ARG PG_MAJOR
 
 ## Create a smaller Docker image from the builder image
 FROM scratch

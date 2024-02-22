@@ -8,6 +8,8 @@
 - POSTGRES user UID and GID changed to match old Alpine image (for ease of DB migration)
 - Auto upgrade of database with PG major version changes from previous PG major version; can be disabled using
   OR_DISABLE_AUTO_UPGRADE=true.
+- Auto upgrade of timescaleDB extension when a new version is available in the container; can be disabled using
+  OR_DISABLE_AUTO_UPGRADE=true.
 - OR_DISABLE_REINDEX env variable with associated scripts to determine if a REINDEX of the entire DB should be carried
   out at first startup with existing DB (checks whether or not $PGDATA/OR_REINDEX_COUNTER.$OR_REINDEX_COUNTER exists).
   This is used when a collation change has occurred (glibc version change, muslc <-> glibc) which can break the indexes;
@@ -25,4 +27,3 @@ See this issue for POSTGIS base image aarch64 support discussion:
 https://github.com/postgis/docker-postgis/issues/216
 
 TODO: Switch over to timescale/timescaledb-ha once arm64 supported
-We get POSTGIS and timescale+toolkit from this image
