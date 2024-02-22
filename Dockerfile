@@ -46,8 +46,15 @@ COPY --from=trimmed-all /usr/share/postgresql/${PG_MAJOR_PREVIOUS} /usr/share/po
 # with OR_DISABLE_REINDEX=true
 ARG OR_REINDEX_COUNTER=1
 
-ENTRYPOINT ["/bin/sh", "-c", "/or-entrypoint.sh postgres -c max_connections=${POSTGRES_MAX_CONNECTIONS}"]
-#postgres -c "max_connections=${POSTGRES_MAX_CONNECTIONS}"
+# This is important otherwise connections will prevent a graceful shutdown
+STOPSIGNAL SIGINT
+
+#ENTRYPOINT ["/bin/sh", "-c", "/or-entrypoint.sh postgres -c max_connections=${POSTGRES_MAX_CONNECTIONS}"]
+ENTRYPOINT ["/or-entrypoint.sh"]
+
+# Use exec form of CMD with exec call so kill signals are correctly forwarded whilst allowing variable expansion
+# see: https://github.com/moby/moby/issues/5509#issuecomment-890126570
+CMD ["postgres"]
 
 ENV PGROOT=/var/lib/postgresql \
     PGDATA=/var/lib/postgresql/data \

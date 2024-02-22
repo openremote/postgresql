@@ -7,6 +7,10 @@
 source /docker-entrypoint.sh
 docker_setup_env
 
+# Append max connections arg if needed
+if [ $POSTGRES_MAX_CONNECTIONS -gt 0 ]; then
+  set -- "$@" -c max_connections=${POSTGRES_MAX_CONNECTIONS}
+fi
 
 # Check for presence of old/new directories, indicating a failed previous autoupgrade
 echo "----------------------------------------------------------------------"
@@ -30,26 +34,15 @@ echo "--------------------------------------------------------------------------
 echo "No artifacts found from a failed previous autoupgrade.  Continuing the process."
 echo "-------------------------------------------------------------------------------"
 
-echo "DB STATUS: "
-pg_ctl -D "$PGDATA" status
-
 if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
 
     echo "-----------------------------------------"
     echo "Performing checks on existing database..."
     echo "-----------------------------------------"
 
-    # Just make sure postgres isn't still running for some reason
-    set +e
-    pg_ctl -D "$PGDATA" -m immedate stop
-    set -e
-    
-    # Remove any stale PID file
-    rm -f "${PGDATA}/postmaster.pid"
-
     # Make sure timescaledb library is set to preload (won't work otherwise)
     echo "---------------------------------------------------------------------------------------"
-    echo "Existing postgresql.conf found checking for shared_preload_libraries = 'timescaledb'..."       
+    echo "Existing postgresql.conf found checking for shared_preload_libraries = 'timescaledb'..."
     echo "---------------------------------------------------------------------------------------"
     RESULT=$(cat "$PGDATA/postgresql.conf" | grep "^shared_preload_libraries = 'timescaledb'" || true)
 
@@ -88,8 +81,18 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "Postgres major version is newer than the existing DB, performing auto upgrade..."
       echo "---------------------------------------------------------------------------------"
 
+      if [ -f "${PGDATA}/postmaster.pid" ]; then
+        echo "-----------------------------------------------------------------------------------------------------"
+        echo "Looks like the server did not previously shutdown properly which will prevent pg_upgrade from working"
+        echo "try stopping the whole stack, bringing only the postgresql container up and then stopping it again"
+        echo "-----------------------------------------------------------------------------------------------------"
+        exit 1
+      fi
+
       if [ ! -d "/usr/lib/postgresql/${DB_VERSION}" ]; then
+        echo "--------------------------------------------------------------------------------------------------"
         echo "Postgres executable version '$DB_VERSION' is not included in this image so cannot auto upgrade"
+        echo "--------------------------------------------------------------------------------------------------"
         exit 1
       fi
 
@@ -194,7 +197,7 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "Copying reindex and TS version files across"
       echo "--------------------------------------------------------------"
       cp -f ${OLD}/OR_REINDEX_* ${PGDATA}
-      cp -f ${OLD}/TS_VERSION ${PGDATA}
+      cp -f ${OLD}/OR_TS_VERSION ${PGDATA}
       echo "-------------------------------------------------------------------"
       echo "Copying reindex files is complete"
       echo "-------------------------------------------------------------------"
