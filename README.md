@@ -27,3 +27,6 @@ See this issue for POSTGIS base image aarch64 support discussion:
 https://github.com/postgis/docker-postgis/issues/216
 
 TODO: Switch over to timescale/timescaledb-ha once arm64 supported
+
+## Upgrading
+***NOTE: If you change the version of container you use then make sure you have backed up your DB first as this container will try to auto upgrade your DB and/or TimescaleDB extension; this auto upgrade functionality can be disabled using `OR_DISABLE_AUTO_UPGRADE=true`***
