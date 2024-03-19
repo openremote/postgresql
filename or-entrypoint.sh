@@ -151,31 +151,31 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       # Return the error handling back to automatically aborting on non-0 exit status
       set -e
 
-    # If no initdb arguments were passed to us from the environment, then work out something valid ourselves
-    if [ "x${POSTGRES_INITDB_ARGS}" != "x" ]; then
-        echo "------------------------------------------------------------------------------"
-        echo "Using initdb arguments passed in from the environment: ${POSTGRES_INITDB_ARGS}"
-        echo "------------------------------------------------------------------------------"
-    else
-        echo "-------------------------------------------------"
-        echo "Remove postmaster.pid file from PG data directory"
-        echo "-------------------------------------------------"
-        rm -f "${OLD}"/postmaster.pid
+      # If no initdb arguments were passed to us from the environment, then work out something valid ourselves
+      if [ "x${POSTGRES_INITDB_ARGS}" != "x" ]; then
+         echo "------------------------------------------------------------------------------"
+         echo "Using initdb arguments passed in from the environment: ${POSTGRES_INITDB_ARGS}"
+         echo "------------------------------------------------------------------------------"
+      else
+         echo "-------------------------------------------------"
+         echo "Remove postmaster.pid file from PG data directory"
+         echo "-------------------------------------------------"
+         rm -f "${OLD}"/postmaster.pid
 
-        echo "------------------------------------"
-        echo "Determining our own initdb arguments"
-        echo "------------------------------------"
-        COLLATE=unset
-        CTYPE=unset
-        ENCODING=unset
-        COLLATE=$(echo 'SHOW LC_COLLATE' | "/usr/lib/postgresql/${DB_VERSION}/bin/postgres" --single -D "${OLD}" "${POSTGRES_DB}" | grep 'lc_collate = "' | cut -d '"' -f 2)
-        CTYPE=$(echo 'SHOW LC_CTYPE' | "/usr/lib/postgresql/${DB_VERSION}/bin/postgres" --single -D "${OLD}" "${POSTGRES_DB}" | grep 'lc_ctype = "' | cut -d '"' -f 2)
-        ENCODING=$(echo 'SHOW SERVER_ENCODING' | "/usr/lib/postgresql/${DB_VERSION}/bin/postgres" --single -D "${OLD}" "${POSTGRES_DB}" | grep 'server_encoding = "' | cut -d '"' -f 2)
-        POSTGRES_INITDB_ARGS="--locale=${COLLATE} --lc-collate=${COLLATE} --lc-ctype=${CTYPE} --encoding=${ENCODING}"
-        echo "---------------------------------------------------------------"
-        echo "The initdb arguments we determined are: ${POSTGRES_INITDB_ARGS}"
-        echo "---------------------------------------------------------------"
-    fi
+         echo "------------------------------------"
+         echo "Determining our own initdb arguments"
+         echo "------------------------------------"
+         COLLATE=unset
+         CTYPE=unset
+         ENCODING=unset
+         COLLATE=$(echo 'SHOW LC_COLLATE' | "/usr/lib/postgresql/${DB_VERSION}/bin/postgres" --single -D "${OLD}" "${POSTGRES_DB}" | grep 'lc_collate = "' | cut -d '"' -f 2)
+         CTYPE=$(echo 'SHOW LC_CTYPE' | "/usr/lib/postgresql/${DB_VERSION}/bin/postgres" --single -D "${OLD}" "${POSTGRES_DB}" | grep 'lc_ctype = "' | cut -d '"' -f 2)
+         ENCODING=$(echo 'SHOW SERVER_ENCODING' | "/usr/lib/postgresql/${DB_VERSION}/bin/postgres" --single -D "${OLD}" "${POSTGRES_DB}" | grep 'server_encoding = "' | cut -d '"' -f 2)
+         POSTGRES_INITDB_ARGS="--locale=${COLLATE} --lc-collate=${COLLATE} --lc-ctype=${CTYPE} --encoding=${ENCODING}"
+         echo "---------------------------------------------------------------"
+         echo "The initdb arguments we determined are: ${POSTGRES_INITDB_ARGS}"
+         echo "---------------------------------------------------------------"
+      fi
 
       # Initialise the new PostgreSQL database directory
       echo "--------------------------------------------------------------------------------------------------------------------"
@@ -340,8 +340,17 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
         echo "------------------------"
         echo "Performing TS upgrade..."
         echo "------------------------"
+
+        # Don't automatically abort on non-0 exit status, just in case timescaledb extension isn't installed on the DB
+		set +e
         docker_process_sql -X -c "ALTER EXTENSION timescaledb UPDATE;"
-        docker_process_sql -c "CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit; ALTER EXTENSION timescaledb_toolkit UPDATE;"
+		
+		if [ $? -eq 0 ]; then
+           docker_process_sql -c "CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit; ALTER EXTENSION timescaledb_toolkit UPDATE;"
+		fi
+		
+		# Return the error handling back to automatically aborting on non-0 exit status
+        set -e
 
         echo "-------------------"
         echo "TS upgrade complete"
