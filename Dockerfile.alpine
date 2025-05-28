@@ -20,7 +20,7 @@ FROM timescaledev/timescaledb-ha:pg15-multi as timescale-ha
 # This still doesn't work as timescale code is compiled against glibc and some references don't match with gcompat
 
 FROM timescale/timescaledb:latest-pg15
-MAINTAINER support@openremote.io
+LABEL maintainer="support@openremote.io"
 
 ENV GLIBC_VERSION 2.35-r0
 ENV TZ ${TZ:-Europe/Amsterdam}
@@ -29,8 +29,8 @@ ENV POSTGRES_DB ${POSTGRES_DB:-openremote}
 ENV POSTGRES_USER ${POSTGRES_USER:-postgres}
 ENV POSTGRES_PASSWORD ${POSTGRES_PASSWORD:-postgres}
 
-# Add glibc
-RUN apk add gcompat
+# Add glibc and cron for scheduled VACUUM FULL operations
+RUN apk add --no-cache gcompat dcron
 
 
 COPY --from=timescale-ha /usr/lib/postgresql/15/lib/bitcode/postgis-3/ /usr/local/lib/postgresql/bitcode/

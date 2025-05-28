@@ -377,4 +377,13 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
     fi
 fi
 
+# Start cron service if it exists (for scheduled VACUUM FULL operations)
+if [ -x "$(command -v cron)" ]; then
+  echo "Starting cron service for scheduled database maintenance..."
+  service cron start
+elif [ -x "$(command -v crond)" ] && [ -f "/var/lib/postgresql/scripts/start_cron.sh" ]; then
+  echo "Starting Alpine crond service for scheduled database maintenance..."
+  /var/lib/postgresql/scripts/start_cron.sh
+fi
+
 exec /docker-entrypoint.sh $@

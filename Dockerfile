@@ -3,9 +3,12 @@ ARG PG_MAJOR_PREVIOUS=14
 ARG PG_MAJOR=15
 
 FROM timescaledev/timescaledb-ha:pg15-multi as trimmed
-MAINTAINER support@openremote.io
+LABEL maintainer="support@openremote.io"
 
 USER root
+
+# Install cron for scheduled VACUUM FULL operations
+RUN apt-get update && apt-get install -y cron && rm -rf /var/lib/apt/lists/*
 
 # Give postgres user the same UID and GID as the old alpine postgres image to simplify migration of existing DB
 RUN usermod -u 70 postgres \
