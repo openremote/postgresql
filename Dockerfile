@@ -3,7 +3,7 @@ ARG PG_MAJOR_PREVIOUS=14
 ARG PG_MAJOR=15
 
 FROM timescaledev/timescaledb-ha:pg15-multi as trimmed
-LABEL maintainer="support@openremote.io"
+LABEL org.opencontainers.image.authors="support@openremote.io"
 
 USER root
 
