@@ -20,7 +20,7 @@ FROM timescaledev/timescaledb-ha:pg15-multi as timescale-ha
 # This still doesn't work as timescale code is compiled against glibc and some references don't match with gcompat
 
 FROM timescale/timescaledb:latest-pg15
-LABEL maintainer="support@openremote.io"
+LABEL org.opencontainers.image.authors="support@openremote.io"
 
 ENV GLIBC_VERSION 2.35-r0
 ENV TZ ${TZ:-Europe/Amsterdam}
