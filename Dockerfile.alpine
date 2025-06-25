@@ -29,6 +29,10 @@ ENV POSTGRES_DB ${POSTGRES_DB:-openremote}
 ENV POSTGRES_USER ${POSTGRES_USER:-postgres}
 ENV POSTGRES_PASSWORD ${POSTGRES_PASSWORD:-postgres}
 
+# VACUUM FULL settings (disabled by default)
+ENV OR_ENABLE_VACUUM_FULL=${OR_ENABLE_VACUUM_FULL:-false}
+ENV OR_VACUUM_FULL_CRON_SCHEDULE="${OR_VACUUM_FULL_CRON_SCHEDULE:-'0 0 * * 0'}"
+
 # Add glibc and cron for scheduled VACUUM FULL operations
 RUN apk add --no-cache gcompat dcron
 

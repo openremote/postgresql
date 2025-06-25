@@ -377,13 +377,17 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
     fi
 fi
 
-# Start cron service if it exists (for scheduled VACUUM FULL operations)
-if [ -x "$(command -v cron)" ]; then
-  echo "Starting cron service for scheduled database maintenance..."
-  service cron start
-elif [ -x "$(command -v crond)" ] && [ -f "/var/lib/postgresql/scripts/start_cron.sh" ]; then
-  echo "Starting Alpine crond service for scheduled database maintenance..."
-  /var/lib/postgresql/scripts/start_cron.sh
+# Start cron service if it exists and VACUUM FULL is enabled
+if [ "${OR_ENABLE_VACUUM_FULL:-false}" = "true" ]; then
+  if [ -x "$(command -v cron)" ]; then
+    echo "Starting cron service for scheduled database maintenance (OR_ENABLE_VACUUM_FULL=true)..."
+    service cron start
+  elif [ -x "$(command -v crond)" ] && [ -f "/var/lib/postgresql/scripts/start_cron.sh" ]; then
+    echo "Starting Alpine crond service for scheduled database maintenance (OR_ENABLE_VACUUM_FULL=true)..."
+    /var/lib/postgresql/scripts/start_cron.sh
+  fi
+else
+  echo "VACUUM FULL is disabled (OR_ENABLE_VACUUM_FULL is not set to 'true'). Skipping cron service."
 fi
 
 exec /docker-entrypoint.sh $@
