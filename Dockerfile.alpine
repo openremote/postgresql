@@ -29,12 +29,17 @@ ENV POSTGRES_DB ${POSTGRES_DB:-openremote}
 ENV POSTGRES_USER ${POSTGRES_USER:-postgres}
 ENV POSTGRES_PASSWORD ${POSTGRES_PASSWORD:-postgres}
 
-# VACUUM FULL settings (disabled by default)
-ENV OR_ENABLE_VACUUM_FULL=${OR_ENABLE_VACUUM_FULL:-false}
-ENV OR_VACUUM_FULL_CRON_SCHEDULE="${OR_VACUUM_FULL_CRON_SCHEDULE:-'0 0 * * 0'}"
+# VACUUM FULL cron schedule (if not set, VACUUM FULL is disabled)
+ENV OR_VACUUM_FULL_CRON_SCHEDULE="${OR_VACUUM_FULL_CRON_SCHEDULE:-}"
 
 # Add glibc and cron for scheduled VACUUM FULL operations
 RUN apk add --no-cache gcompat dcron
+
+# Add scripts for VACUUM FULL operations
+RUN mkdir -p /var/lib/postgresql/scripts
+ADD scripts/vacuum_full.sh /var/lib/postgresql/scripts/
+ADD scripts/start_cron.sh /var/lib/postgresql/scripts/
+RUN chmod +x /var/lib/postgresql/scripts/*.sh
 
 
 COPY --from=timescale-ha /usr/lib/postgresql/15/lib/bitcode/postgis-3/ /usr/local/lib/postgresql/bitcode/
