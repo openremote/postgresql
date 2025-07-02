@@ -17,7 +17,11 @@ on:
       - '*.*'
     paths-ignore:
       - '**/*.md'
- 
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   image_postgresql:
@@ -28,10 +32,6 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - uses: styfle/cancel-workflow-action@0.8.0
-        with:
-          access_token: ${{ github.token }}
-          
       - name: Set tags
         run: |
           if [ -z "$TAG" ]; then
