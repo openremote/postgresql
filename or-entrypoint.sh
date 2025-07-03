@@ -377,4 +377,7 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
     fi
 fi
 
+# Setup and start cron service for VACUUM FULL operations
+/var/lib/postgresql/scripts/start_cron.sh
+
 exec /docker-entrypoint.sh $@
