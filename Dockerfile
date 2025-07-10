@@ -7,15 +7,6 @@ LABEL org.opencontainers.image.authors="support@openremote.io"
 
 USER root
 
-# Install cron for scheduled VACUUM FULL operations
-RUN apt-get update && apt-get install -y cron && rm -rf /var/lib/apt/lists/*
-
-# Add scripts for VACUUM FULL operations
-RUN mkdir -p /var/lib/postgresql/scripts
-ADD scripts/vacuum_full.sh /var/lib/postgresql/scripts/
-ADD scripts/start_cron.sh /var/lib/postgresql/scripts/
-RUN chmod +x /var/lib/postgresql/scripts/*.sh
-
 # Give postgres user the same UID and GID as the old alpine postgres image to simplify migration of existing DB
 RUN usermod -u 70 postgres \
  && groupmod -g 70 postgres \
@@ -88,8 +79,8 @@ ENV PGROOT=/var/lib/postgresql \
     OR_DISABLE_REINDEX=${OR_DISABLE_REINDEX:-false} \
     POSTGRES_MAX_CONNECTIONS=${POSTGRES_MAX_CONNECTIONS:-50} \
     OR_DISABLE_AUTO_UPGRADE=${OR_DISABLE_AUTO_UPGRADE:-false} \
-    # VACUUM FULL cron schedule (if not set, VACUUM FULL is disabled)
-    OR_VACUUM_FULL_CRON_SCHEDULE="${OR_VACUUM_FULL_CRON_SCHEDULE:-}"
+    OR_AUTOVACUUM_VACUUM_SCALE_FACTOR=${OR_AUTOVACUUM_VACUUM_SCALE_FACTOR:-0.2} \
+    OR_AUTOVACUUM_ANALYZE_SCALE_FACTOR=${OR_AUTOVACUUM_ANALYZE_SCALE_FACTOR:-0.1}
 
 WORKDIR /var/lib/postgresql
 EXPOSE 5432 8008 8081

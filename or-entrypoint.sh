@@ -59,6 +59,54 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "timescaledb.telemetry_level=off" >> "$PGDATA/postgresql.conf"
     fi
 
+    # Check and update autovacuum_vacuum_scale_factor if needed
+    echo "--------------------------------------------------------------------"
+    echo "Checking autovacuum_vacuum_scale_factor setting..."
+    echo "--------------------------------------------------------------------"
+    
+    # Extract current setting if it exists (commented or uncommented)
+    CURRENT_AUTOVAC_SETTING=$(grep -E "^[#]*autovacuum_vacuum_scale_factor" "$PGDATA/postgresql.conf" | grep -oE "[0-9]\.[0-9]+" || echo "")
+    
+    if [ -z "$CURRENT_AUTOVAC_SETTING" ] || [ "$CURRENT_AUTOVAC_SETTING" != "$OR_AUTOVACUUM_VACUUM_SCALE_FACTOR" ]; then
+      echo "------------------------------------------------------------------------"
+      echo "Setting autovacuum_vacuum_scale_factor to $OR_AUTOVACUUM_VACUUM_SCALE_FACTOR"
+      echo "------------------------------------------------------------------------"
+      
+      # Remove any existing setting (commented or uncommented)
+      sed -i "/^[#]*autovacuum_vacuum_scale_factor/d" "$PGDATA/postgresql.conf"
+      
+      # Add the new setting
+      echo "autovacuum_vacuum_scale_factor = $OR_AUTOVACUUM_VACUUM_SCALE_FACTOR" >> "$PGDATA/postgresql.conf"
+    else
+      echo "-----------------------------------------------------------------------"
+      echo "autovacuum_vacuum_scale_factor already set to $CURRENT_AUTOVAC_SETTING"
+      echo "-----------------------------------------------------------------------"
+    fi
+
+    # Check and update autovacuum_analyze_scale_factor if needed
+    echo "--------------------------------------------------------------------"
+    echo "Checking autovacuum_analyze_scale_factor setting..."
+    echo "--------------------------------------------------------------------"
+    
+    # Extract current setting if it exists (commented or uncommented)
+    CURRENT_AUTOVAC_ANALYZE_SETTING=$(grep -E "^[#]*autovacuum_analyze_scale_factor" "$PGDATA/postgresql.conf" | grep -oE "[0-9]\.[0-9]+" || echo "")
+    
+    if [ -z "$CURRENT_AUTOVAC_ANALYZE_SETTING" ] || [ "$CURRENT_AUTOVAC_ANALYZE_SETTING" != "$OR_AUTOVACUUM_ANALYZE_SCALE_FACTOR" ]; then
+      echo "------------------------------------------------------------------------"
+      echo "Setting autovacuum_analyze_scale_factor to $OR_AUTOVACUUM_ANALYZE_SCALE_FACTOR"
+      echo "------------------------------------------------------------------------"
+      
+      # Remove any existing setting (commented or uncommented)
+      sed -i "/^[#]*autovacuum_analyze_scale_factor/d" "$PGDATA/postgresql.conf"
+      
+      # Add the new setting
+      echo "autovacuum_analyze_scale_factor = $OR_AUTOVACUUM_ANALYZE_SCALE_FACTOR" >> "$PGDATA/postgresql.conf"
+    else
+      echo "------------------------------------------------------------------------"
+      echo "autovacuum_analyze_scale_factor already set to $CURRENT_AUTOVAC_ANALYZE_SETTING"
+      echo "------------------------------------------------------------------------"
+    fi
+
     ########################################################################################
     # Do upgrade checks - Adapted from https://github.com/pgautoupgrade/docker-pgautoupgrade
     ########################################################################################
@@ -376,8 +424,5 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       docker_temp_server_stop
     fi
 fi
-
-# Setup and start cron service for VACUUM FULL operations
-/var/lib/postgresql/scripts/start_cron.sh
 
 exec /docker-entrypoint.sh $@
