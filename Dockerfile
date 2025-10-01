@@ -1,17 +1,21 @@
 
-ARG PG_MAJOR_PREVIOUS=14
-ARG PG_MAJOR=15
+ARG PG_MAJOR_PREVIOUS=15
+ARG PG_MAJOR=17
+ARG TIMESCALE_VERSION=2.22
 
-FROM timescaledev/timescaledb-ha:pg15-multi as trimmed
-MAINTAINER support@openremote.io
+FROM timescale/timescaledb-ha:pg17-ts${TIMESCALE_VERSION} AS trimmed
+LABEL maintainer="support@openremote.io"
 
 USER root
+
+# install fd to find files to speed up chown and chgrp
+RUN apt-get update && apt-get install -y fd-find && rm -rf /var/lib/apt/lists/*
 
 # Give postgres user the same UID and GID as the old alpine postgres image to simplify migration of existing DB
 RUN usermod -u 70 postgres \
  && groupmod -g 70 postgres \
- && (find / -group 1000 -exec chgrp -h postgres {} \; || true) \
- && (find / -user 1000 -exec chown -h postgres {} \; || true)
+ && (fd / -group 1000 -exec chgrp -h postgres {} \; || true) \
+ && (fd / -user 1000 -exec chown -h postgres {} \; || true)
 
 # Set PGDATA to the same location as our old alpine image
 RUN mkdir -p /var/lib/postgresql && mv /home/postgres/pgdata/* /var/lib/postgresql/ && chown -R postgres:postgres /var/lib/postgresql
@@ -28,8 +32,9 @@ RUN chmod +x /docker-entrypoint-initdb.d/*
 # Below is mostly copied from https://github.com/timescale/timescaledb-docker-ha/blob/master/Dockerfile (with OR specific entrypoint,
 # workdir and OR env defaults)
 
-# Get multi all image
-FROM timescaledev/timescaledb-ha:pg15-multi-all as trimmed-all
+# Get the -all variant which contains multiple PostgreSQL versions
+# According to TimescaleDB docs: "timescale/timescaledb-ha images have the files necessary to run previous versions"
+FROM timescale/timescaledb-ha:pg17-ts${TIMESCALE_VERSION}-all AS trimmed-all
 
 ## Create a smaller Docker image from the builder image
 FROM scratch
