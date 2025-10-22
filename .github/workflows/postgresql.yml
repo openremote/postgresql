@@ -32,15 +32,40 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Free up disk space by removing tools
+      - name: Free up disk space
         run: |
-            sudo rm -rf /usr/share/dotnet
-            sudo rm -rf /opt/ghc
-            sudo rm -rf "/usr/local/share/boost"
-            sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-            echo "Disk space after cleanup:"
-            df -h
-
+          echo "Disk space before cleanup:"
+          df -h
+          
+          # Remove large directories
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          
+          # Remove large packages
+          sudo apt-get remove -y '^aspnetcore-.*' || true
+          sudo apt-get remove -y '^dotnet-.*' || true
+          sudo apt-get remove -y '^llvm-.*' || true
+          sudo apt-get remove -y 'php.*' || true
+          sudo apt-get remove -y '^mongodb-.*' || true
+          sudo apt-get remove -y '^mysql-.*' || true
+          sudo apt-get remove -y azure-cli google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri || true
+          sudo apt-get remove -y google-cloud-sdk google-cloud-cli || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          
+          # Remove Docker images
+          sudo docker image prune --all --force
+          
+          # Remove swap storage
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile || true
+          
+          echo "Disk space after cleanup:"
+          df -h
+          
       - name: Set tags
         run: |
           if [ -z "$TAG" ]; then
@@ -76,4 +101,10 @@ jobs:
         
       - name: build and push images
         run: |
-          docker build --build-arg GIT_COMMIT=${{ github.sha }} --push --platform $PLATFORM $TAG .
+          docker buildx build \
+            --build-arg GIT_COMMIT=${{ github.sha }} \
+            --push \
+            --platform $PLATFORM \
+            --no-cache-filter trimmed \
+            --no-cache-filter trimmed-all \
+            $TAG .
