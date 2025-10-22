@@ -24,11 +24,7 @@ concurrency:
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  image_postgresql:
-  
-    env:
-      PLATFORM: linux/amd64,linux/aarch64
-      
+  image_postgresql_amd64:
     runs-on: ubuntu-latest
     
     steps:
@@ -69,9 +65,9 @@ jobs:
       - name: Set tags
         run: |
           if [ -z "$TAG" ]; then
-            echo "TAG=-t openremote/postgresql:develop" >> $GITHUB_ENV
+            echo "TAG=-t openremote/postgresql:develop-amd64" >> $GITHUB_ENV
           else
-            echo "TAG=-t openremote/postgresql:latest -t openremote/postgresql:$TAG" >> $GITHUB_ENV
+            echo "TAG=-t openremote/postgresql:$TAG-amd64" >> $GITHUB_ENV
           fi
         env:
           TAG: ${{ github.event.release.tag_name }}
@@ -90,21 +86,130 @@ jobs:
           version: latest
           install: true
           
-      - name: available platforms
-        run: echo ${{ steps.buildx.outputs.platforms }}
-        
       - name: Login to DockerHub
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef
         with:
           username: ${{ secrets._TEMP_DOCKERHUB_USER }}
           password: ${{ secrets._TEMP_DOCKERHUB_PASSWORD }}
         
-      - name: build and push images
+      - name: build and push amd64 image
         run: |
           docker buildx build \
             --build-arg GIT_COMMIT=${{ github.sha }} \
             --push \
-            --platform $PLATFORM \
+            --platform linux/amd64 \
             --no-cache-filter trimmed \
             --no-cache-filter trimmed-all \
             $TAG .
+
+  image_postgresql_arm64:
+    needs: image_postgresql_amd64
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Free up disk space
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          
+          # Remove large directories
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          
+          # Remove large packages
+          sudo apt-get remove -y '^aspnetcore-.*' || true
+          sudo apt-get remove -y '^dotnet-.*' || true
+          sudo apt-get remove -y '^llvm-.*' || true
+          sudo apt-get remove -y 'php.*' || true
+          sudo apt-get remove -y '^mongodb-.*' || true
+          sudo apt-get remove -y '^mysql-.*' || true
+          sudo apt-get remove -y azure-cli google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri || true
+          sudo apt-get remove -y google-cloud-sdk google-cloud-cli || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          
+          # Remove Docker images
+          sudo docker image prune --all --force
+          
+          # Remove swap storage
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile || true
+          
+          echo "Disk space after cleanup:"
+          df -h
+          
+      - name: Set tags
+        run: |
+          if [ -z "$TAG" ]; then
+            echo "TAG=-t openremote/postgresql:develop-arm64" >> $GITHUB_ENV
+          else
+            echo "TAG=-t openremote/postgresql:$TAG-arm64" >> $GITHUB_ENV
+          fi
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      
+      - name: set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392
+        with:
+          platforms: all
+          
+      - name: install buildx
+        id: buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+        with:
+          version: latest
+          install: true
+          
+      - name: Login to DockerHub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef
+        with:
+          username: ${{ secrets._TEMP_DOCKERHUB_USER }}
+          password: ${{ secrets._TEMP_DOCKERHUB_PASSWORD }}
+        
+      - name: build and push arm64 image
+        run: |
+          docker buildx build \
+            --build-arg GIT_COMMIT=${{ github.sha }} \
+            --push \
+            --platform linux/aarch64 \
+            --no-cache-filter trimmed \
+            --no-cache-filter trimmed-all \
+            $TAG .
+
+  create_manifest:
+    needs: [image_postgresql_amd64, image_postgresql_arm64]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Set tags
+        run: |
+          if [ -z "$TAG" ]; then
+            echo "TAG=openremote/postgresql:develop" >> $GITHUB_ENV
+            echo "TAG_AMD64=openremote/postgresql:develop-amd64" >> $GITHUB_ENV
+            echo "TAG_ARM64=openremote/postgresql:develop-arm64" >> $GITHUB_ENV
+          else
+            echo "TAG=openremote/postgresql:$TAG" >> $GITHUB_ENV
+            echo "TAG_LATEST=openremote/postgresql:latest" >> $GITHUB_ENV
+            echo "TAG_AMD64=openremote/postgresql:$TAG-amd64" >> $GITHUB_ENV
+            echo "TAG_ARM64=openremote/postgresql:$TAG-arm64" >> $GITHUB_ENV
+          fi
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+      
+      - name: Login to DockerHub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef
+        with:
+          username: ${{ secrets._TEMP_DOCKERHUB_USER }}
+          password: ${{ secrets._TEMP_DOCKERHUB_PASSWORD }}
+      
+      - name: Create and push multi-arch manifest
+        run: |
+          docker buildx imagetools create -t $TAG $TAG_AMD64 $TAG_ARM64
+          if [ ! -z "$TAG_LATEST" ]; then
+            docker buildx imagetools create -t $TAG_LATEST $TAG_AMD64 $TAG_ARM64
+          fi
