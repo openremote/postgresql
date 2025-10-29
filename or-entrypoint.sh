@@ -430,9 +430,25 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       fi
     fi
 
-    # Check if retention policies need to be configured
+    # Check if retention policies need to be configured or removed
+    # We need to run the script if:
+    # 1. Environment variables are set (to add/update policies)
+    # 2. Environment variables changed from previous run (to remove policies)
     DO_RETENTION_POLICY=false
-    if [ -n "$OR_ASSET_DATAPOINT_RETENTION" ] || [ -n "$OR_ASSET_PREDICTED_DATAPOINT_RETENTION" ]; then
+    RETENTION_CONFIG_FILE="${PGDATA}/OR_RETENTION_CONFIG"
+    CURRENT_RETENTION_CONFIG="asset_datapoint:${OR_ASSET_DATAPOINT_RETENTION}|asset_predicted_datapoint:${OR_ASSET_PREDICTED_DATAPOINT_RETENTION}"
+    
+    if [ -f "$RETENTION_CONFIG_FILE" ]; then
+      PREVIOUS_RETENTION_CONFIG=$(cat "$RETENTION_CONFIG_FILE")
+      if [ "$PREVIOUS_RETENTION_CONFIG" != "$CURRENT_RETENTION_CONFIG" ]; then
+        echo "-------------------------------------------------------"
+        echo "Retention policy configuration has changed"
+        echo "  Previous: $PREVIOUS_RETENTION_CONFIG"
+        echo "  Current:  $CURRENT_RETENTION_CONFIG"
+        echo "-------------------------------------------------------"
+        DO_RETENTION_POLICY=true
+      fi
+    elif [ -n "$OR_ASSET_DATAPOINT_RETENTION" ] || [ -n "$OR_ASSET_PREDICTED_DATAPOINT_RETENTION" ]; then
       echo "-------------------------------------------------------"
       echo "Retention policy environment variables detected"
       echo "  OR_ASSET_DATAPOINT_RETENTION: ${OR_ASSET_DATAPOINT_RETENTION}"
@@ -493,7 +509,7 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
         touch "$REINDEX_FILE"
       fi
 
-      # Configure retention policies if environment variables are set
+      # Configure retention policies if environment variables changed
       if [ "$DO_RETENTION_POLICY" == "true" ]; then
         echo "-----------------------------------------------------------"
         echo "Configuring TimescaleDB retention policies for existing DB..."
@@ -504,6 +520,9 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
         
         # Run the retention policy script
         /docker-entrypoint-initdb.d/200_or_retention_policy.sh
+        
+        # Save the current configuration to detect future changes
+        echo "$CURRENT_RETENTION_CONFIG" > "$RETENTION_CONFIG_FILE"
         
         # Return the error handling back to automatically aborting on non-0 exit status
         set -e
