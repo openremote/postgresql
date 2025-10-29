@@ -430,7 +430,18 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       fi
     fi
 
-    if [ "$DO_REINDEX" == "true" ] || [ "$DO_TS_UPGRADE" == "true" ]; then
+    # Check if retention policies need to be configured
+    DO_RETENTION_POLICY=false
+    if [ -n "$OR_ASSET_DATAPOINT_RETENTION" ] || [ -n "$OR_ASSET_PREDICTED_DATAPOINT_RETENTION" ]; then
+      echo "-------------------------------------------------------"
+      echo "Retention policy environment variables detected"
+      echo "  OR_ASSET_DATAPOINT_RETENTION: ${OR_ASSET_DATAPOINT_RETENTION}"
+      echo "  OR_ASSET_PREDICTED_DATAPOINT_RETENTION: ${OR_ASSET_PREDICTED_DATAPOINT_RETENTION}"
+      echo "-------------------------------------------------------"
+      DO_RETENTION_POLICY=true
+    fi
+
+    if [ "$DO_REINDEX" == "true" ] || [ "$DO_TS_UPGRADE" == "true" ] || [ "$DO_RETENTION_POLICY" == "true" ]; then
       echo "-------------------------"
       echo "Starting temporary server"
       echo "-------------------------"
@@ -449,16 +460,16 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
         echo "Target TimescaleDB version: ${TS_VERSION}"
 
         # Don't automatically abort on non-0 exit status, just in case timescaledb extension isn't installed on the DB
-		set +e
+	set +e
         docker_process_sql -X -c "ALTER EXTENSION timescaledb UPDATE;"
-		
-		if [ $? -eq 0 ]; then
+	
+	if [ $? -eq 0 ]; then
            NEW_TS_VERSION=$(docker_process_sql -X -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';" | grep -v extversion | grep -v row | tr -d ' ')
            echo "TimescaleDB upgraded: ${CURRENT_TS_VERSION} -> ${NEW_TS_VERSION}"
            docker_process_sql -c "CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit; ALTER EXTENSION timescaledb_toolkit UPDATE;"
-		fi
-		
-		# Return the error handling back to automatically aborting on non-0 exit status
+	fi
+	
+	# Return the error handling back to automatically aborting on non-0 exit status
         set -e
 
         echo "================================================================================="
@@ -480,6 +491,22 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
         echo "REINDEX completed!"
         echo "------------------"
         touch "$REINDEX_FILE"
+      fi
+
+      # Configure retention policies if environment variables are set
+      if [ "$DO_RETENTION_POLICY" == "true" ]; then
+        echo "-----------------------------------------------------------"
+        echo "Configuring TimescaleDB retention policies for existing DB..."
+        echo "-----------------------------------------------------------"
+        
+        # Don't automatically abort on non-0 exit status
+        set +e
+        
+        # Run the retention policy script
+        /docker-entrypoint-initdb.d/200_or_retention_policy.sh
+        
+        # Return the error handling back to automatically aborting on non-0 exit status
+        set -e
       fi
 
       docker_temp_server_stop
