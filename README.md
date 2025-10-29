@@ -19,8 +19,8 @@
   This functionality is intended to simplify migration for basic users; advanced users with large DBs should take care of this
   themselves.
 - Automatic TimescaleDB retention policy configuration for asset datapoint tables using environment variables:
-  - `OR_ASSET_DATAPOINT_RETENTION` - Sets retention period for `asset_datapoint` table (default: "90 days")
-  - `OR_ASSET_PREDICTED_DATAPOINT_RETENTION` - Sets retention period for `asset_predicted_datapoint` table (default: "90 days")
+  - `OR_ASSET_DATAPOINT_RETENTION` - Sets retention period for `asset_datapoint` table (disabled by default)
+  - `OR_ASSET_PREDICTED_DATAPOINT_RETENTION` - Sets retention period for `asset_predicted_datapoint` table (disabled by default)
   - Supports flexible time units: hours, days, weeks, months, years (e.g., "48 hours", "2 weeks", "6 months")
   - Retention policies automatically delete data older than the specified period
   - Policies are applied on both new database initialization and existing database startup
@@ -44,8 +44,8 @@ This image supports automatic configuration of TimescaleDB retention policies fo
 
 Set the following environment variables to configure retention policies:
 
-- **`OR_ASSET_DATAPOINT_RETENTION`** - Retention period for the `asset_datapoint` table (default: "90 days")
-- **`OR_ASSET_PREDICTED_DATAPOINT_RETENTION`** - Retention period for the `asset_predicted_datapoint` table (default: "90 days")
+- **`OR_ASSET_DATAPOINT_RETENTION`** - Retention period for the `asset_datapoint` table (disabled by default)
+- **`OR_ASSET_PREDICTED_DATAPOINT_RETENTION`** - Retention period for the `asset_predicted_datapoint` table (disabled by default)
 
 The retention period supports flexible PostgreSQL interval syntax with the following time units:
 - **hours** - e.g., "48 hours", "72 hours"
@@ -65,21 +65,21 @@ services:
     image: openremote/postgresql:latest
     environment:
       # Keep asset_datapoint for 6 months
-      - OR_ASSET_DATAPOINT_RETENTION=6 months
+      OR_ASSET_DATAPOINT_RETENTION: 6 months
       # Keep predicted datapoint for only 2 weeks
-      - OR_ASSET_PREDICTED_DATAPOINT_RETENTION=2 weeks
+      OR_ASSET_PREDICTED_DATAPOINT_RETENTION: 2 weeks
 ```
 
 Additional examples:
 ```yaml
 # Short-term retention (48 hours)
-- OR_ASSET_DATAPOINT_RETENTION=48 hours
+OR_ASSET_DATAPOINT_RETENTION: 48 hours
 
 # Long-term retention (1 year)
-- OR_ASSET_DATAPOINT_RETENTION=1 year
+OR_ASSET_DATAPOINT_RETENTION: 1 year
 
 # Combined units
-- OR_ASSET_DATAPOINT_RETENTION=1 year 6 months
+OR_ASSET_DATAPOINT_RETENTION: 1 year 6 months
 ```
 
 ### Behavior
@@ -87,7 +87,6 @@ Additional examples:
 - **New databases**: Retention policies are automatically configured during initialization if the tables exist as hypertables
 - **Existing databases**: Retention policies are applied/updated on container startup when environment variables are set
 - **Changing retention periods**: Simply update the environment variables and restart the container
-- **Default value**: If not specified, both tables default to "90 days" retention period
 - **Disabling retention**: To disable automatic retention policy configuration, do not set these environment variables
 
 ### Notes

@@ -7,8 +7,8 @@
 set -e
 
 # Default retention periods (supports flexible time units like "90 days", "6 months", "2 weeks", "48 hours")
-OR_ASSET_DATAPOINT_RETENTION="${OR_ASSET_DATAPOINT_RETENTION:-90 days}"
-OR_ASSET_PREDICTED_DATAPOINT_RETENTION="${OR_ASSET_PREDICTED_DATAPOINT_RETENTION:-90 days}"
+OR_ASSET_DATAPOINT_RETENTION=$OR_ASSET_DATAPOINT_RETENTION
+OR_ASSET_PREDICTED_DATAPOINT_RETENTION=$OR_ASSET_PREDICTED_DATAPOINT_RETENTION
 
 echo "-----------------------------------------------------------"
 echo "Configuring TimescaleDB retention policies..."
