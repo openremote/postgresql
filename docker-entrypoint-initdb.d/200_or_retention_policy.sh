@@ -74,7 +74,18 @@ EOSQL
     fi
 }
 
-# Configure retention policies (add if set, remove if not set)
+# Remove existing settings if they exist
+sed -i -e '/^or.asset_datapoint_retention/d' -e '/^or.asset_predicted_datapoint_retention/d' "$PGDATA/postgresql.conf"
+
+# Add new settings
+if [ -n "$OR_ASSET_DATAPOINT_RETENTION" ]; then
+    echo "or.asset_datapoint_retention = '$OR_ASSET_DATAPOINT_RETENTION'" >> "$PGDATA/postgresql.conf"
+fi
+if [ -n "$OR_ASSET_PREDICTED_DATAPOINT_RETENTION" ]; then
+    echo "or.asset_predicted_datapoint_retention = '$OR_ASSET_PREDICTED_DATAPOINT_RETENTION'" >> "$PGDATA/postgresql.conf"
+fi
+
+# Then configure the actual retention policies
 configure_retention_policy "asset_datapoint" "$OR_ASSET_DATAPOINT_RETENTION"
 configure_retention_policy "asset_predicted_datapoint" "$OR_ASSET_PREDICTED_DATAPOINT_RETENTION"
 
