@@ -96,9 +96,10 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       # Don't automatically abort on non-0 exit status, just in case timescaledb extension isn't installed
       set +e
       
-      # Get the latest TimescaleDB version available
+      # Get the latest TimescaleDB version available for the OLD PostgreSQL version
+      # We must use DB_VERSION here since we're running on the old server
       TS_VERSION_REGEX="\-\-([0-9|\.]+)\."
-      TS_SCRIPT_NAME=$(find /usr/share/postgresql/$PG_MAJOR/extension/ -type f -name "timescaledb--*.sql" | sort | tail -n 1)
+      TS_SCRIPT_NAME=$(find /usr/share/postgresql/${DB_VERSION}/extension/ -type f -name "timescaledb--*.sql" | sort | tail -n 1)
       if [ "$TS_SCRIPT_NAME" != "" ] && [[ $TS_SCRIPT_NAME =~ $TS_VERSION_REGEX ]]; then
         TARGET_TS_VERSION=${BASH_REMATCH[1]}
         echo "Target TimescaleDB version available: ${TARGET_TS_VERSION}"
@@ -387,23 +388,20 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       fi
     fi
 
-    # Only do this upgrade if we're NOT in the middle of a PostgreSQL upgrade
-    # (TimescaleDB was already upgraded in STEP 1 before pg_upgrade)
-    if [ "$DB_VERSION" == "$PG_MAJOR" ]; then
-      if [ "$DO_TS_UPGRADE" == "true" ]  && [ "$OR_DISABLE_AUTO_UPGRADE" == "true" ]; then
-        echo "----------------------------------------------------------------------------------"
-        echo "TimescaleDB upgrade can be performed but OR_DISABLE_AUTO_UPGRADE=true so skipping!"
-        echo "----------------------------------------------------------------------------------"
-      fi
-
-      if [ "${OR_DISABLE_AUTO_UPGRADE}" == "true" ]; then
-        DO_TS_UPGRADE=false
-      fi
-    else
-      # PostgreSQL version mismatch means we're in upgrade mode
-      # TimescaleDB upgrade already happened in STEP 1
+    # Check if auto-upgrade is disabled
+    if [ "$DO_TS_UPGRADE" == "true" ] && [ "$OR_DISABLE_AUTO_UPGRADE" == "true" ]; then
+      echo "----------------------------------------------------------------------------------"
+      echo "TimescaleDB upgrade can be performed but OR_DISABLE_AUTO_UPGRADE=true so skipping!"
+      echo "----------------------------------------------------------------------------------"
       DO_TS_UPGRADE=false
-      echo "Skipping TimescaleDB upgrade check - already upgraded in STEP 1 before pg_upgrade"
+    fi
+
+    # If we just did a PostgreSQL upgrade, we MUST upgrade TimescaleDB on the new cluster
+    # pg_upgrade copies extension metadata but doesn't upgrade extensions
+    # STEP 1 upgraded TS on the OLD cluster, but pg_upgrade created a NEW cluster
+    if [ "$DB_VERSION" != "$PG_MAJOR" ] && [ "$OR_DISABLE_AUTO_UPGRADE" != "true" ]; then
+      echo "PostgreSQL was just upgraded - forcing TimescaleDB upgrade on new cluster"
+      DO_TS_UPGRADE=true
     fi
 
 
@@ -442,23 +440,42 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
         echo "================================================================================="
         echo "STEP 3: Upgrading TimescaleDB on PostgreSQL ${PG_MAJOR}..."
         echo "================================================================================="
-
-        # Get current version
-        CURRENT_TS_VERSION=$(docker_process_sql -X -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';" | grep -v extversion | grep -v row | tr -d ' ')
-        echo "Current TimescaleDB version: ${CURRENT_TS_VERSION}"
         echo "Target TimescaleDB version: ${TS_VERSION}"
 
-        # Don't automatically abort on non-0 exit status, just in case timescaledb extension isn't installed on the DB
-		set +e
-        docker_process_sql -X -c "ALTER EXTENSION timescaledb UPDATE;"
-		
-		if [ $? -eq 0 ]; then
-           NEW_TS_VERSION=$(docker_process_sql -X -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';" | grep -v extversion | grep -v row | tr -d ' ')
-           echo "TimescaleDB upgraded: ${CURRENT_TS_VERSION} -> ${NEW_TS_VERSION}"
-           docker_process_sql -c "CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit; ALTER EXTENSION timescaledb_toolkit UPDATE;"
-		fi
-		
-		# Return the error handling back to automatically aborting on non-0 exit status
+        # Don't automatically abort on non-0 exit status, just in case timescaledb extension isn't installed
+        set +e
+
+        # Upgrade TimescaleDB in ALL databases that have it installed
+        # This is critical after pg_upgrade which copies extension metadata but doesn't upgrade
+        echo "Finding all databases with TimescaleDB extension..."
+        DATABASES=$(docker_process_sql -X -t -c "SELECT datname FROM pg_database WHERE datallowconn;" | grep -v "^$")
+
+        for DB in $DATABASES; do
+          echo "Checking database: $DB"
+          HAS_TS=$(docker_process_sql -X -d "$DB" -c "SELECT 1 FROM pg_extension WHERE extname='timescaledb';" | grep -v "^$" | wc -l)
+
+          if [ "$HAS_TS" -gt 0 ]; then
+            CURRENT_TS_VERSION=$(docker_process_sql -X -d "$DB" -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';" | grep -v extversion | grep -v row | tr -d ' ')
+            echo "  Database $DB has TimescaleDB ${CURRENT_TS_VERSION}, upgrading..."
+            docker_process_sql -X -d "$DB" -c "ALTER EXTENSION timescaledb UPDATE;"
+            NEW_TS_VERSION=$(docker_process_sql -X -d "$DB" -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';" | grep -v extversion | grep -v row | tr -d ' ')
+            echo "  Upgraded: ${CURRENT_TS_VERSION} -> ${NEW_TS_VERSION}"
+
+            # Also upgrade toolkit if present
+            HAS_TOOLKIT=$(docker_process_sql -X -d "$DB" -c "SELECT 1 FROM pg_extension WHERE extname='timescaledb_toolkit';" | grep -v "^$" | wc -l)
+            if [ "$HAS_TOOLKIT" -gt 0 ]; then
+              echo "  Upgrading timescaledb_toolkit in $DB..."
+              docker_process_sql -X -d "$DB" -c "ALTER EXTENSION timescaledb_toolkit UPDATE;"
+            else
+              echo "  Creating timescaledb_toolkit in $DB..."
+              docker_process_sql -d "$DB" -c "CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit;"
+            fi
+          fi
+        done
+
+        echo "TimescaleDB upgrade complete in all databases"
+
+        # Return the error handling back to automatically aborting on non-0 exit status
         set -e
 
         echo "================================================================================="

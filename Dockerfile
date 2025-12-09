@@ -1,5 +1,4 @@
 
-ARG PG_MAJOR_PREVIOUS=15
 ARG PG_MAJOR=17
 ARG TIMESCALE_VERSION=2.22
 
@@ -40,12 +39,13 @@ FROM timescale/timescaledb-ha:pg17-ts${TIMESCALE_VERSION}-all AS trimmed-all
 FROM scratch
 COPY --from=trimmed / /
 
-ARG PG_MAJOR_PREVIOUS
 ARG PG_MAJOR
 
-## Copy previous PG MAJOR version executable
-COPY --from=trimmed-all /usr/lib/postgresql/${PG_MAJOR_PREVIOUS} /usr/lib/postgresql/${PG_MAJOR_PREVIOUS}
-COPY --from=trimmed-all /usr/share/postgresql/${PG_MAJOR_PREVIOUS} /usr/share/postgresql/${PG_MAJOR_PREVIOUS}
+## Copy only PostgreSQL 14 and 15 for upgrade support
+COPY --from=trimmed-all /usr/lib/postgresql/14 /usr/lib/postgresql/14
+COPY --from=trimmed-all /usr/lib/postgresql/15 /usr/lib/postgresql/15
+COPY --from=trimmed-all /usr/share/postgresql/14 /usr/share/postgresql/14
+COPY --from=trimmed-all /usr/share/postgresql/15 /usr/share/postgresql/15
 
 # Increment this to indicate that a re-index should be carried out on first startup with existing data; REINDEX can still be overidden
 # with OR_DISABLE_REINDEX=true
