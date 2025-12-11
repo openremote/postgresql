@@ -1,16 +1,44 @@
 ARG PG_MAJOR=17
 ARG TIMESCALE_VERSION=2.22
 
-# Stage 1: Prepare the main image with UID/GID changes and cleanup
-FROM timescale/timescaledb-ha:pg17-ts${TIMESCALE_VERSION} AS trimmed
+# Stage 1: Get PostgreSQL 14/15 binaries for upgrade support
+FROM timescale/timescaledb-ha:pg17-ts${TIMESCALE_VERSION}-all AS pg-all
+
+USER root
+
+# Strip debug symbols and remove unnecessary files from PG 14/15 in this stage
+# For pg_upgrade we only need bin/ and lib/, plus minimal share files (NOT extensions)
+RUN find /usr/lib/postgresql/14 /usr/lib/postgresql/15 -type f -name '*.so*' -exec strip --strip-unneeded {} \; 2>/dev/null || true \
+    && find /usr/lib/postgresql/14 /usr/lib/postgresql/15 -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true \
+    && rm -rf /usr/share/postgresql/14/extension \
+              /usr/share/postgresql/15/extension \
+              /usr/share/postgresql/14/man \
+              /usr/share/postgresql/15/man \
+              /usr/share/postgresql/14/doc \
+              /usr/share/postgresql/15/doc \
+              /usr/share/postgresql/14/contrib \
+              /usr/share/postgresql/15/contrib
+
+# Stage 2: Prepare the main image with UID/GID changes and cleanup
+FROM timescale/timescaledb-ha:pg17-ts${TIMESCALE_VERSION} AS final
 LABEL maintainer="support@openremote.io"
 
 USER root
 
-# Install fd-find, fix UID/GID, setup directories, copy files, and cleanup - all in one layer
+# Copy only PG 14/15 bin directories for pg_upgrade (lib is needed for binaries to work)
+COPY --from=pg-all /usr/lib/postgresql/14/bin /usr/lib/postgresql/14/bin
+COPY --from=pg-all /usr/lib/postgresql/14/lib /usr/lib/postgresql/14/lib
+COPY --from=pg-all /usr/lib/postgresql/15/bin /usr/lib/postgresql/15/bin
+COPY --from=pg-all /usr/lib/postgresql/15/lib /usr/lib/postgresql/15/lib
+# Copy minimal share files needed for pg_upgrade (excluding extensions which are ~500MB each)
+COPY --from=pg-all /usr/share/postgresql/14 /usr/share/postgresql/14
+COPY --from=pg-all /usr/share/postgresql/15 /usr/share/postgresql/15
+
+# Copy entrypoint scripts
 COPY or-entrypoint.sh /
 COPY docker-entrypoint-initdb.d/ /docker-entrypoint-initdb.d/
 
+# Install fd-find, fix UID/GID, setup directories, strip binaries, and cleanup - all in one layer
 RUN apt-get update && apt-get install -y --no-install-recommends fd-find \
     # Give postgres user the same UID and GID as the old alpine postgres image
     && usermod -u 70 postgres \
@@ -23,6 +51,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends fd-find \
     && chown -R postgres:postgres /var/lib/postgresql \
     # Make scripts executable
     && chmod +x /or-entrypoint.sh /docker-entrypoint-initdb.d/* \
+    # Strip debug symbols from PostgreSQL binaries to reduce size
+    && find /usr/lib/postgresql -type f -name '*.so*' -exec strip --strip-unneeded {} \; 2>/dev/null || true \
+    && find /usr/lib/postgresql -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true \
     # Remove fd-find and clean up
     && apt-get purge -y fd-find \
     && apt-get autoremove -y --purge \
@@ -34,33 +65,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends fd-find \
               /usr/share/man/* \
               /usr/share/info/* \
               /usr/share/lintian/* \
+              /usr/share/locale/* \
               /tmp/* \
               /var/tmp/* \
-              /root/.cache
-
-# Stage 2: Get PostgreSQL 14/15 binaries for upgrade support
-FROM timescale/timescaledb-ha:pg17-ts${TIMESCALE_VERSION}-all AS trimmed-all
-
-# Stage 3: Create final minimal image
-FROM scratch
-COPY --from=trimmed / /
+              /root/.cache \
+              /home/postgres/.cache \
+              /usr/share/postgresql/*/man \
+              /usr/share/postgresql/*/doc
 
 ARG PG_MAJOR
-
-# Copy only PostgreSQL 14 and 15 lib directories for pg_upgrade support
-COPY --from=trimmed-all /usr/lib/postgresql/14 /usr/lib/postgresql/14
-COPY --from=trimmed-all /usr/lib/postgresql/15 /usr/lib/postgresql/15
-# Copy minimal share files needed for upgrades
-COPY --from=trimmed-all /usr/share/postgresql/14 /usr/share/postgresql/14
-COPY --from=trimmed-all /usr/share/postgresql/15 /usr/share/postgresql/15
-
-# Clean up docs/man from copied PG versions and any remaining cruft
-RUN rm -rf /usr/share/postgresql/14/man \
-           /usr/share/postgresql/15/man \
-           /usr/share/doc/* \
-           /usr/share/man/* \
-           /var/cache/* \
-           /var/log/*
 
 # Increment this to indicate that a re-index should be carried out on first startup with existing data; REINDEX can still be overidden
 # with OR_DISABLE_REINDEX=true
