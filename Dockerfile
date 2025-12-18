@@ -2,7 +2,7 @@ ARG PG_MAJOR=17
 ARG TIMESCALE_VERSION=2.22
 
 # Stage 1: Get PostgreSQL 14/15 binaries for upgrade support
-FROM timescale/timescaledb-ha:pg17-ts${TIMESCALE_VERSION}-all AS pg-all
+FROM timescale/timescaledb-ha:pg${PG_MAJOR}-ts${TIMESCALE_VERSION}-all AS pg-all
 
 USER root
 
@@ -20,7 +20,7 @@ RUN find /usr/lib/postgresql/14 /usr/lib/postgresql/15 -type f -name '*.so*' -ex
               /usr/share/postgresql/15/contrib
 
 # Stage 2: Prepare the main image with UID/GID changes and cleanup
-FROM timescale/timescaledb-ha:pg17-ts${TIMESCALE_VERSION} AS final
+FROM timescale/timescaledb-ha:pg${PG_MAJOR}-ts${TIMESCALE_VERSION} AS final
 LABEL maintainer="support@openremote.io"
 
 USER root
@@ -70,6 +70,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends fd-find \
               /var/tmp/* \
               /root/.cache \
               /home/postgres/.cache \
+              /usr/local/lib/pgai \
               /usr/share/postgresql/*/man \
               /usr/share/postgresql/*/doc
 
