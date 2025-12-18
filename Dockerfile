@@ -1,51 +1,80 @@
-
 ARG PG_MAJOR=17
 ARG TIMESCALE_VERSION=2.22
 
-FROM timescale/timescaledb-ha:pg17-ts${TIMESCALE_VERSION} AS trimmed
+# Stage 1: Get PostgreSQL 14/15 binaries for upgrade support
+FROM timescale/timescaledb-ha:pg${PG_MAJOR}-ts${TIMESCALE_VERSION}-all AS pg-all
+
+USER root
+
+# Strip debug symbols and remove unnecessary files from PG 14/15 in this stage
+# For pg_upgrade we only need bin/ and lib/, plus minimal share files (NOT extensions)
+RUN find /usr/lib/postgresql/14 /usr/lib/postgresql/15 -type f -name '*.so*' -exec strip --strip-unneeded {} \; 2>/dev/null || true \
+    && find /usr/lib/postgresql/14 /usr/lib/postgresql/15 -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true \
+    && rm -rf /usr/share/postgresql/14/extension \
+              /usr/share/postgresql/15/extension \
+              /usr/share/postgresql/14/man \
+              /usr/share/postgresql/15/man \
+              /usr/share/postgresql/14/doc \
+              /usr/share/postgresql/15/doc \
+              /usr/share/postgresql/14/contrib \
+              /usr/share/postgresql/15/contrib
+
+# Stage 2: Prepare the main image with UID/GID changes and cleanup
+FROM timescale/timescaledb-ha:pg${PG_MAJOR}-ts${TIMESCALE_VERSION} AS final
 LABEL maintainer="support@openremote.io"
 
 USER root
 
-# install fd to find files to speed up chown and chgrp
-RUN apt-get update && apt-get install -y fd-find && rm -rf /var/lib/apt/lists/*
+# Copy only PG 14/15 bin directories for pg_upgrade (lib is needed for binaries to work)
+COPY --from=pg-all /usr/lib/postgresql/14/bin /usr/lib/postgresql/14/bin
+COPY --from=pg-all /usr/lib/postgresql/14/lib /usr/lib/postgresql/14/lib
+COPY --from=pg-all /usr/lib/postgresql/15/bin /usr/lib/postgresql/15/bin
+COPY --from=pg-all /usr/lib/postgresql/15/lib /usr/lib/postgresql/15/lib
+# Copy minimal share files needed for pg_upgrade (excluding extensions which are ~500MB each)
+COPY --from=pg-all /usr/share/postgresql/14 /usr/share/postgresql/14
+COPY --from=pg-all /usr/share/postgresql/15 /usr/share/postgresql/15
 
-# Give postgres user the same UID and GID as the old alpine postgres image to simplify migration of existing DB
-RUN usermod -u 70 postgres \
- && groupmod -g 70 postgres \
- && (fd / -group 1000 -exec chgrp -h postgres {} \; || true) \
- && (fd / -user 1000 -exec chown -h postgres {} \; || true)
-
-# Set PGDATA to the same location as our old alpine image
-RUN mkdir -p /var/lib/postgresql && mv /home/postgres/pgdata/* /var/lib/postgresql/ && chown -R postgres:postgres /var/lib/postgresql
-
-# Add custom entry point (see file header for details)
+# Copy entrypoint scripts
 COPY or-entrypoint.sh /
-RUN chmod +x /or-entrypoint.sh
-
-# Add custom initdb script(s)
 COPY docker-entrypoint-initdb.d/ /docker-entrypoint-initdb.d/
-RUN chmod +x /docker-entrypoint-initdb.d/*
 
-
-# Below is mostly copied from https://github.com/timescale/timescaledb-docker-ha/blob/master/Dockerfile (with OR specific entrypoint,
-# workdir and OR env defaults)
-
-# Get the -all variant which contains multiple PostgreSQL versions
-# According to TimescaleDB docs: "timescale/timescaledb-ha images have the files necessary to run previous versions"
-FROM timescale/timescaledb-ha:pg17-ts${TIMESCALE_VERSION}-all AS trimmed-all
-
-## Create a smaller Docker image from the builder image
-FROM scratch
-COPY --from=trimmed / /
+# Install fd-find, fix UID/GID, setup directories, strip binaries, and cleanup - all in one layer
+RUN apt-get update && apt-get install -y --no-install-recommends fd-find \
+    # Give postgres user the same UID and GID as the old alpine postgres image
+    && usermod -u 70 postgres \
+    && groupmod -g 70 postgres \
+    && (fdfind . / -group 1000 -exec chgrp -h postgres {} \; 2>/dev/null || true) \
+    && (fdfind . / -user 1000 -exec chown -h postgres {} \; 2>/dev/null || true) \
+    # Set PGDATA to the same location as our old alpine image
+    && mkdir -p /var/lib/postgresql \
+    && mv /home/postgres/pgdata/* /var/lib/postgresql/ \
+    && chown -R postgres:postgres /var/lib/postgresql \
+    # Make scripts executable
+    && chmod +x /or-entrypoint.sh /docker-entrypoint-initdb.d/* \
+    # Strip debug symbols from PostgreSQL binaries to reduce size
+    && find /usr/lib/postgresql -type f -name '*.so*' -exec strip --strip-unneeded {} \; 2>/dev/null || true \
+    && find /usr/lib/postgresql -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true \
+    # Remove fd-find and clean up
+    && apt-get purge -y fd-find \
+    && apt-get autoremove -y --purge \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+              /var/cache/apt/* \
+              /var/log/* \
+              /usr/share/doc/* \
+              /usr/share/man/* \
+              /usr/share/info/* \
+              /usr/share/lintian/* \
+              /usr/share/locale/* \
+              /tmp/* \
+              /var/tmp/* \
+              /root/.cache \
+              /home/postgres/.cache \
+              /usr/local/lib/pgai \
+              /usr/share/postgresql/*/man \
+              /usr/share/postgresql/*/doc
 
 ARG PG_MAJOR
-
-## Copy only PostgreSQL 14 and 15 for upgrade support
-COPY --from=trimmed-all /usr/lib/postgresql/14 /usr/lib/postgresql/14
-COPY --from=trimmed-all /usr/lib/postgresql/15 /usr/lib/postgresql/15
-COPY --from=trimmed-all /usr/share/postgresql/14 /usr/share/postgresql/14
-COPY --from=trimmed-all /usr/share/postgresql/15 /usr/share/postgresql/15
 
 # Increment this to indicate that a re-index should be carried out on first startup with existing data; REINDEX can still be overidden
 # with OR_DISABLE_REINDEX=true
