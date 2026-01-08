@@ -77,6 +77,20 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "---------------------------------------------------------------------------------"
     fi
 
+    # Check if the old DB version is supported for upgrade
+    if [ "$DB_VERSION" != "$PG_MAJOR" ] && [ "$OR_DISABLE_AUTO_UPGRADE" != "true" ]; then
+      # Only PREV_PG_MAJOR and PG_MAJOR are supported
+      if [ "$DB_VERSION" != "$PREV_PG_MAJOR" ] && [ "$DB_VERSION" != "$PG_MAJOR" ]; then
+        echo "********************************************************************************"
+        echo "ERROR: Database version ${DB_VERSION} is not supported for automatic upgrade!"
+        echo "This image only supports upgrading from PostgreSQL ${PREV_PG_MAJOR} to ${PG_MAJOR}."
+        echo "To upgrade from ${DB_VERSION}, you need to use an intermediate image version"
+        echo "that supports upgrading from ${DB_VERSION} first."
+        echo "********************************************************************************"
+        exit 12
+      fi
+    fi
+
     # STEP 1: Upgrade TimescaleDB on OLD PostgreSQL version (if needed)
     # This must happen BEFORE pg_upgrade so both old and new PG have the same TS version
     if [ "$DB_VERSION" != "$PG_MAJOR" ] && [ "$OR_DISABLE_AUTO_UPGRADE" != "true" ]; then

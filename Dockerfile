@@ -73,6 +73,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends fd-find \
               /usr/share/postgresql/*/doc
 
 ARG PG_MAJOR
+ARG PREV_PG_MAJOR
 
 # Increment this to indicate that a re-index should be carried out on first startup with existing data; REINDEX can still be overidden
 # with OR_DISABLE_REINDEX=true
@@ -107,6 +108,7 @@ ENV PGROOT=/var/lib/postgresql \
     POSTGRES_USER=${POSTGRES_USER:-postgres} \
     POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres} \
     PG_MAJOR=$PG_MAJOR \
+    PREV_PG_MAJOR=$PREV_PG_MAJOR \
     OR_REINDEX_COUNTER=${OR_REINDEX_COUNTER} \
     OR_DISABLE_REINDEX=${OR_DISABLE_REINDEX:-false} \
     POSTGRES_MAX_CONNECTIONS=${POSTGRES_MAX_CONNECTIONS:-50} \
