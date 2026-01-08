@@ -92,15 +92,72 @@ jobs:
           username: ${{ secrets._TEMP_DOCKERHUB_USER }}
           password: ${{ secrets._TEMP_DOCKERHUB_PASSWORD }}
         
-      - name: build and push amd64 image
+      - name: Build amd64 image locally
         run: |
           docker buildx build \
             --build-arg GIT_COMMIT=${{ github.sha }} \
-            --push \
+            --load \
             --platform linux/amd64 \
             --no-cache-filter trimmed \
             --no-cache-filter trimmed-all \
             $TAG .
+
+      - name: Install slim toolkit
+        run: |
+          curl -sL https://raw.githubusercontent.com/slimtoolkit/slim/master/scripts/install-slim.sh | sudo -E bash -
+
+      - name: Slim the image
+        run: |
+          # Extract image name from TAG (remove -t prefix)
+          IMAGE_NAME=$(echo "$TAG" | sed 's/-t //')
+          slim build --target $IMAGE_NAME \
+            --tag ${IMAGE_NAME}-slim \
+            --http-probe=false \
+            --continue-after=15 \
+            --expose=5432 \
+            --expose=8008 \
+            --expose=8081 \
+            --include-path=/usr/lib/postgresql \
+            --include-path=/usr/lib/x86_64-linux-gnu \
+            --include-path=/usr/share/postgresql \
+            --include-path=/usr/share/proj \
+            --include-path=/usr/share/gdal \
+            --include-path=/etc/alternatives \
+            --preserve-path=/var/lib/postgresql \
+            --preserve-path=/docker-entrypoint-initdb.d \
+            --preserve-path=/or-entrypoint.sh \
+            --preserve-path=/etc/postgresql \
+            --preserve-path=/etc/ssl \
+            --include-shell \
+            --include-bin=/usr/bin/sort \
+            --include-bin=/usr/bin/find \
+            --include-bin=/usr/bin/xargs \
+            --include-bin=/usr/bin/dirname \
+            --include-bin=/usr/bin/basename \
+            --include-bin=/usr/bin/head \
+            --include-bin=/usr/bin/tail \
+            --include-bin=/usr/bin/wc \
+            --include-bin=/usr/bin/cut \
+            --include-bin=/usr/bin/tr \
+            --include-bin=/usr/bin/sed \
+            --include-bin=/usr/bin/awk \
+            --include-bin=/usr/bin/grep \
+            --include-bin=/bin/cat \
+            --include-bin=/bin/mv \
+            --include-bin=/bin/mkdir \
+            --include-bin=/bin/chmod \
+            --include-bin=/bin/rm \
+            --include-bin=/bin/cp \
+            --include-bin=/bin/touch \
+            --include-bin=/usr/bin/id \
+            --include-bin=/usr/bin/env
+          # Replace original with slim version
+          docker tag ${IMAGE_NAME}-slim $IMAGE_NAME
+
+      - name: Push amd64 image
+        run: |
+          IMAGE_NAME=$(echo "$TAG" | sed 's/-t //')
+          docker push $IMAGE_NAME
 
   image_postgresql_arm64:
     needs: image_postgresql_amd64
@@ -171,15 +228,72 @@ jobs:
           username: ${{ secrets._TEMP_DOCKERHUB_USER }}
           password: ${{ secrets._TEMP_DOCKERHUB_PASSWORD }}
         
-      - name: build and push arm64 image
+      - name: Build arm64 image locally
         run: |
           docker buildx build \
             --build-arg GIT_COMMIT=${{ github.sha }} \
-            --push \
-            --platform linux/aarch64 \
+            --load \
+            --platform linux/arm64 \
             --no-cache-filter trimmed \
             --no-cache-filter trimmed-all \
             $TAG .
+
+      - name: Install slim toolkit
+        run: |
+          curl -sL https://raw.githubusercontent.com/slimtoolkit/slim/master/scripts/install-slim.sh | sudo -E bash -
+
+      - name: Slim the image
+        run: |
+          # Extract image name from TAG (remove -t prefix)
+          IMAGE_NAME=$(echo "$TAG" | sed 's/-t //')
+          slim build --target $IMAGE_NAME \
+            --tag ${IMAGE_NAME}-slim \
+            --http-probe=false \
+            --continue-after=15 \
+            --expose=5432 \
+            --expose=8008 \
+            --expose=8081 \
+            --include-path=/usr/lib/postgresql \
+            --include-path=/usr/lib/aarch64-linux-gnu \
+            --include-path=/usr/share/postgresql \
+            --include-path=/usr/share/proj \
+            --include-path=/usr/share/gdal \
+            --include-path=/etc/alternatives \
+            --preserve-path=/var/lib/postgresql \
+            --preserve-path=/docker-entrypoint-initdb.d \
+            --preserve-path=/or-entrypoint.sh \
+            --preserve-path=/etc/postgresql \
+            --preserve-path=/etc/ssl \
+            --include-shell \
+            --include-bin=/usr/bin/sort \
+            --include-bin=/usr/bin/find \
+            --include-bin=/usr/bin/xargs \
+            --include-bin=/usr/bin/dirname \
+            --include-bin=/usr/bin/basename \
+            --include-bin=/usr/bin/head \
+            --include-bin=/usr/bin/tail \
+            --include-bin=/usr/bin/wc \
+            --include-bin=/usr/bin/cut \
+            --include-bin=/usr/bin/tr \
+            --include-bin=/usr/bin/sed \
+            --include-bin=/usr/bin/awk \
+            --include-bin=/usr/bin/grep \
+            --include-bin=/bin/cat \
+            --include-bin=/bin/mv \
+            --include-bin=/bin/mkdir \
+            --include-bin=/bin/chmod \
+            --include-bin=/bin/rm \
+            --include-bin=/bin/cp \
+            --include-bin=/bin/touch \
+            --include-bin=/usr/bin/id \
+            --include-bin=/usr/bin/env
+          # Replace original with slim version
+          docker tag ${IMAGE_NAME}-slim $IMAGE_NAME
+
+      - name: Push arm64 image
+        run: |
+          IMAGE_NAME=$(echo "$TAG" | sed 's/-t //')
+          docker push $IMAGE_NAME
 
   create_manifest:
     needs: [image_postgresql_amd64, image_postgresql_arm64]
