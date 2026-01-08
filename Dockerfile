@@ -1,23 +1,22 @@
 ARG PG_MAJOR=17
+ARG PREV_PG_MAJOR=15
 ARG TIMESCALE_VERSION=2.22
 
-# Stage 1: Get PostgreSQL 14/15 binaries for upgrade support
+# Stage 1: Get PostgreSQL ${PREV_PG_MAJOR} binaries for upgrade support
 FROM timescale/timescaledb-ha:pg${PG_MAJOR}-ts${TIMESCALE_VERSION}-all AS pg-all
 
 USER root
 
-# Strip debug symbols and remove unnecessary files from PG 14/15 in this stage
+ARG PREV_PG_MAJOR
+
+# Strip debug symbols and remove unnecessary files from PG ${PREV_PG_MAJOR} in this stage
 # For pg_upgrade we only need bin/ and lib/, plus minimal share files (NOT extensions)
-RUN find /usr/lib/postgresql/14 /usr/lib/postgresql/15 -type f -name '*.so*' -exec strip --strip-unneeded {} \; 2>/dev/null || true \
-    && find /usr/lib/postgresql/14 /usr/lib/postgresql/15 -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true \
-    && rm -rf /usr/share/postgresql/14/extension \
-              /usr/share/postgresql/15/extension \
-              /usr/share/postgresql/14/man \
-              /usr/share/postgresql/15/man \
-              /usr/share/postgresql/14/doc \
-              /usr/share/postgresql/15/doc \
-              /usr/share/postgresql/14/contrib \
-              /usr/share/postgresql/15/contrib
+RUN find /usr/lib/postgresql/${PREV_PG_MAJOR} -type f -name '*.so*' -exec strip --strip-unneeded {} \; 2>/dev/null || true \
+    && find /usr/lib/postgresql/${PREV_PG_MAJOR} -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true \
+    && rm -rf /usr/share/postgresql/${PREV_PG_MAJOR}/extension \
+              /usr/share/postgresql/${PREV_PG_MAJOR}/man \
+              /usr/share/postgresql/${PREV_PG_MAJOR}/doc \
+              /usr/share/postgresql/${PREV_PG_MAJOR}/contrib
 
 # Stage 2: Prepare the main image with UID/GID changes and cleanup
 FROM timescale/timescaledb-ha:pg${PG_MAJOR}-ts${TIMESCALE_VERSION} AS final
@@ -25,14 +24,13 @@ LABEL maintainer="support@openremote.io"
 
 USER root
 
-# Copy only PG 14/15 bin directories for pg_upgrade (lib is needed for binaries to work)
-COPY --from=pg-all /usr/lib/postgresql/14/bin /usr/lib/postgresql/14/bin
-COPY --from=pg-all /usr/lib/postgresql/14/lib /usr/lib/postgresql/14/lib
-COPY --from=pg-all /usr/lib/postgresql/15/bin /usr/lib/postgresql/15/bin
-COPY --from=pg-all /usr/lib/postgresql/15/lib /usr/lib/postgresql/15/lib
+ARG PREV_PG_MAJOR
+
+# Copy only PG ${PREV_PG_MAJOR} bin directories for pg_upgrade (lib is needed for binaries to work)
+COPY --from=pg-all /usr/lib/postgresql/${PREV_PG_MAJOR}/bin /usr/lib/postgresql/${PREV_PG_MAJOR}/bin
+COPY --from=pg-all /usr/lib/postgresql/${PREV_PG_MAJOR}/lib /usr/lib/postgresql/${PREV_PG_MAJOR}/lib
 # Copy minimal share files needed for pg_upgrade (excluding extensions which are ~500MB each)
-COPY --from=pg-all /usr/share/postgresql/14 /usr/share/postgresql/14
-COPY --from=pg-all /usr/share/postgresql/15 /usr/share/postgresql/15
+COPY --from=pg-all /usr/share/postgresql/${PREV_PG_MAJOR} /usr/share/postgresql/${PREV_PG_MAJOR}
 
 # Copy entrypoint scripts
 COPY or-entrypoint.sh /
