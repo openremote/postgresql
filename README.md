@@ -41,15 +41,23 @@ For more installation options, see the [slim toolkit documentation](https://gith
 
 ### Building the Image
 
-To build and slim the image locally:
-
+1. Build the Docker image (replace `17` with desired PostgreSQL major version):
 ```bash
-./build_and_slim.sh
+docker build --build-arg PG_MAJOR=17 -t openremote/postgresql:pg17 .
 ```
 
-This will:
-1. Build the regular Docker image with the correct `PG_MAJOR` build argument
-2. Use slim toolkit to create an optimized version with reduced size (~60% smaller)
+2. Slim the image using the provided script:
+```bash
+# Usage: ./slim-image.sh <source-image> <target-image> <architecture>
+# Architecture: amd64 or arm64 (auto-detected if omitted)
+
+./slim-image.sh openremote/postgresql:pg17 openremote/postgresql:pg17-slim
+```
+
+3. Optionally replace the original with the slimmed version:
+```bash
+docker tag openremote/postgresql:pg17-slim openremote/postgresql:pg17
+```
 
 ## Upgrading
 
