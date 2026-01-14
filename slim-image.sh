@@ -1,0 +1,85 @@
+#!/bin/bash
+#
+# Shared script to slim a PostgreSQL Docker image using slimtoolkit.
+# Used by both local development (build_and_slim.sh) and GitHub Actions workflow.
+#
+# Usage: ./slim-image.sh <source-image> <target-image> <architecture>
+#   architecture: amd64 or arm64
+#
+# Prerequisites:
+#   - slim toolkit must be installed (https://github.com/slimtoolkit/slim)
+#   - Install via: curl -sL https://raw.githubusercontent.com/slimtoolkit/slim/master/scripts/install-slim.sh | sudo -E bash -
+#   - Or via Homebrew: brew install docker-slim
+
+set -e
+
+SOURCE_IMAGE=$1
+TARGET_IMAGE=$2
+ARCH=${3:-$(uname -m)}
+
+if [ -z "$SOURCE_IMAGE" ] || [ -z "$TARGET_IMAGE" ]; then
+    echo "Usage: $0 <source-image> <target-image> [architecture]"
+    echo "  architecture: amd64, arm64, x86_64, aarch64 (default: auto-detect)"
+    exit 1
+fi
+
+# Normalize architecture names
+case "$ARCH" in
+    amd64|x86_64)
+        LIB_ARCH="x86_64-linux-gnu"
+        ;;
+    arm64|aarch64)
+        LIB_ARCH="aarch64-linux-gnu"
+        ;;
+    *)
+        echo "Unsupported architecture: $ARCH"
+        echo "Supported: amd64, arm64, x86_64, aarch64"
+        exit 1
+        ;;
+esac
+
+echo "Slimming image: $SOURCE_IMAGE -> $TARGET_IMAGE (arch: $ARCH, lib: $LIB_ARCH)"
+
+slim build --target "$SOURCE_IMAGE" \
+    --tag "$TARGET_IMAGE" \
+    --http-probe=false \
+    --continue-after=15 \
+    --expose=5432 \
+    --expose=8008 \
+    --expose=8081 \
+    --include-path=/usr/lib/postgresql \
+    --include-path=/usr/lib/${LIB_ARCH} \
+    --include-path=/usr/share/postgresql \
+    --include-path=/usr/share/proj \
+    --include-path=/usr/share/gdal \
+    --include-path=/etc/alternatives \
+    --preserve-path=/var/lib/postgresql \
+    --preserve-path=/docker-entrypoint-initdb.d \
+    --preserve-path=/or-entrypoint.sh \
+    --preserve-path=/etc/postgresql \
+    --preserve-path=/etc/ssl \
+    --include-shell \
+    --include-bin=/usr/bin/sort \
+    --include-bin=/usr/bin/find \
+    --include-bin=/usr/bin/xargs \
+    --include-bin=/usr/bin/dirname \
+    --include-bin=/usr/bin/basename \
+    --include-bin=/usr/bin/head \
+    --include-bin=/usr/bin/tail \
+    --include-bin=/usr/bin/wc \
+    --include-bin=/usr/bin/cut \
+    --include-bin=/usr/bin/tr \
+    --include-bin=/usr/bin/sed \
+    --include-bin=/usr/bin/awk \
+    --include-bin=/usr/bin/grep \
+    --include-bin=/bin/cat \
+    --include-bin=/bin/mv \
+    --include-bin=/bin/mkdir \
+    --include-bin=/bin/chmod \
+    --include-bin=/bin/rm \
+    --include-bin=/bin/cp \
+    --include-bin=/bin/touch \
+    --include-bin=/usr/bin/id \
+    --include-bin=/usr/bin/env
+
+echo "Successfully created slimmed image: $TARGET_IMAGE"

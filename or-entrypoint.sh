@@ -84,8 +84,15 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
         echo "********************************************************************************"
         echo "ERROR: Database version ${DB_VERSION} is not supported for automatic upgrade!"
         echo "This image only supports upgrading from PostgreSQL ${PREV_PG_MAJOR} to ${PG_MAJOR}."
-        echo "To upgrade from ${DB_VERSION}, you need to use an intermediate image version"
-        echo "that supports upgrading from ${DB_VERSION} first."
+        echo ""
+        echo "Options:"
+        echo "  1. Use an intermediate image version that supports upgrading from ${DB_VERSION}"
+        echo "  2. Manually upgrade the database (see documentation below)"
+        echo ""
+        echo "Documentation:"
+        echo "  - OpenRemote PostgreSQL upgrade guide: https://github.com/openremote/postgresql#upgrading"
+        echo "  - PostgreSQL pg_upgrade: https://www.postgresql.org/docs/current/pgupgrade.html"
+        echo "  - TimescaleDB upgrade guide: https://docs.timescale.com/self-hosted/latest/upgrades/"
         echo "********************************************************************************"
         exit 12
       fi
