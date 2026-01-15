@@ -10,11 +10,10 @@ USER root
 ARG PREV_PG_MAJOR
 
 # Strip debug symbols and remove unnecessary files from PG ${PREV_PG_MAJOR} in this stage
-# For pg_upgrade we only need bin/ and lib/, plus minimal share files (NOT extensions)
+# For pg_upgrade we need bin/, lib/, and extension/ (for TimescaleDB upgrade scripts)
 RUN find /usr/lib/postgresql/${PREV_PG_MAJOR} -type f -name '*.so*' -exec strip --strip-unneeded {} \; 2>/dev/null || true \
     && find /usr/lib/postgresql/${PREV_PG_MAJOR} -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true \
-    && rm -rf /usr/share/postgresql/${PREV_PG_MAJOR}/extension \
-              /usr/share/postgresql/${PREV_PG_MAJOR}/man \
+    && rm -rf /usr/share/postgresql/${PREV_PG_MAJOR}/man \
               /usr/share/postgresql/${PREV_PG_MAJOR}/doc \
               /usr/share/postgresql/${PREV_PG_MAJOR}/contrib
 
@@ -26,10 +25,10 @@ USER root
 
 ARG PREV_PG_MAJOR
 
-# Copy only PG ${PREV_PG_MAJOR} bin directories for pg_upgrade (lib is needed for binaries to work)
+# Copy PG ${PREV_PG_MAJOR} bin and lib directories for pg_upgrade
 COPY --from=pg-all /usr/lib/postgresql/${PREV_PG_MAJOR}/bin /usr/lib/postgresql/${PREV_PG_MAJOR}/bin
 COPY --from=pg-all /usr/lib/postgresql/${PREV_PG_MAJOR}/lib /usr/lib/postgresql/${PREV_PG_MAJOR}/lib
-# Copy minimal share files needed for pg_upgrade (excluding extensions which are ~500MB each)
+# Copy share files including extensions (needed for TimescaleDB upgrade on old PG before pg_upgrade)
 COPY --from=pg-all /usr/share/postgresql/${PREV_PG_MAJOR} /usr/share/postgresql/${PREV_PG_MAJOR}
 
 # Copy entrypoint scripts
