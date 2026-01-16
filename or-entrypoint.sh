@@ -77,6 +77,27 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "---------------------------------------------------------------------------------"
     fi
 
+    # Check if the old DB version is supported for upgrade
+    if [ "$DB_VERSION" != "$PG_MAJOR" ] && [ "$OR_DISABLE_AUTO_UPGRADE" != "true" ]; then
+      # Only PREV_PG_MAJOR and PG_MAJOR are supported
+      if [ "$DB_VERSION" != "$PREV_PG_MAJOR" ] && [ "$DB_VERSION" != "$PG_MAJOR" ]; then
+        echo "********************************************************************************"
+        echo "ERROR: Database version ${DB_VERSION} is not supported for automatic upgrade!"
+        echo "This image only supports upgrading from PostgreSQL ${PREV_PG_MAJOR} to ${PG_MAJOR}."
+        echo ""
+        echo "Options:"
+        echo "  1. Use an intermediate image version that supports upgrading from ${DB_VERSION}"
+        echo "  2. Manually upgrade the database (see documentation below)"
+        echo ""
+        echo "Documentation:"
+        echo "  - OpenRemote PostgreSQL upgrade guide: https://github.com/openremote/postgresql#upgrading"
+        echo "  - PostgreSQL pg_upgrade: https://www.postgresql.org/docs/current/pgupgrade.html"
+        echo "  - TimescaleDB upgrade guide: https://docs.timescale.com/self-hosted/latest/upgrades/"
+        echo "********************************************************************************"
+        exit 12
+      fi
+    fi
+
     # STEP 1: Upgrade TimescaleDB on OLD PostgreSQL version (if needed)
     # This must happen BEFORE pg_upgrade so both old and new PG have the same TS version
     if [ "$DB_VERSION" != "$PG_MAJOR" ] && [ "$OR_DISABLE_AUTO_UPGRADE" != "true" ]; then
