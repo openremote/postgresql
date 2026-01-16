@@ -1,6 +1,5 @@
 ARG PG_MAJOR=17
 ARG PREV_PG_MAJOR=15
-ARG TIMESCALE_VERSION=2.22
 
 # Stage 1: Get PostgreSQL ${PREV_PG_MAJOR} binaries for upgrade support
 FROM timescale/timescaledb-ha:pg${PG_MAJOR}-all AS pg-all
