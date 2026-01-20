@@ -59,7 +59,7 @@ slim build --target "$SOURCE_IMAGE" \
     --preserve-path=/etc/postgresql \
     --preserve-path=/etc/ssl \
     --include-shell \
-    --include-bin=/usr/local/bin/timescaledb-tune
+    --include-bin=/usr/local/bin/timescaledb-tune \
     --include-bin=/usr/bin/sort \
     --include-bin=/usr/bin/find \
     --include-bin=/usr/bin/xargs \
