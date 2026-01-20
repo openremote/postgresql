@@ -45,18 +45,14 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
     echo "---------------------------------------------------------------------------------------"
     echo "Existing postgresql.conf found checking for shared_preload_libraries = 'timescaledb'..."
     echo "---------------------------------------------------------------------------------------"
-    RESULT=$(cat "$PGDATA/postgresql.conf" | grep "^shared_preload_libraries = 'timescaledb'" || true)
 
-    if [ -n "$RESULT" ]; then
-      echo "-------------------------------------------"
-      echo "Timescale DB library already set to preload"
-      echo "-------------------------------------------"
+    # Check if timescaledb is already in the config (anywhere in the line)
+    if grep -q "^shared_preload_libraries.*timescaledb" "$PGDATA/postgresql.conf"; then
+        echo "Timescale DB library already present in shared_preload_libraries"
     else
-      echo "------------------------------------------------------------------"
-      echo "Adding shared_preload_libraries = 'timescaledb' to postgresql.conf"
-      echo "------------------------------------------------------------------"
-      echo "shared_preload_libraries = 'timescaledb'" >> "$PGDATA/postgresql.conf"
-      echo "timescaledb.telemetry_level=off" >> "$PGDATA/postgresql.conf"
+        echo "Adding timescaledb to shared_preload_libraries..."
+        echo "shared_preload_libraries = 'timescaledb'" >> "$PGDATA/postgresql.conf"
+        echo "timescaledb.telemetry_level=off" >> "$PGDATA/postgresql.conf"
     fi
 
     ########################################################################################
@@ -352,24 +348,27 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "Copying the old pg_hba and pg_ident configuration files is complete"
       echo "-------------------------------------------------------------------"
 
-      # Don't automatically abort on non-0 exit status
-      set +e
-
-      # Copy any reindex counter files
+      # Copy reindex/version files
       echo "--------------------------------------------------------------"
       echo "Copying reindex and TS version files across"
       echo "--------------------------------------------------------------"
-      cp -f ${OLD}/OR_REINDEX_* ${PGDATA}
-      cp -f ${OLD}/OR_TS_VERSION ${PGDATA}
+      cp -f "${OLD}/OR_REINDEX_*" "${PGDATA}" || true
+      cp -f "${OLD}/OR_TS_VERSION" "${PGDATA}" || true
       echo "-------------------------------------------------------------------"
-      echo "Copying reindex files is complete"
+      echo "Copying reindex and TS version files is complete"
       echo "-------------------------------------------------------------------"
-
+      
       # Remove the left over database files
       echo "---------------------------------"
       echo "Removing left over database files"
       echo "---------------------------------"
-      rm -rf "${OLD}" "${NEW}" delete_old_cluster.sh
+      # Ensure we are actually in the right place and New Data exists before deleting Old
+      if [ -d "${PGDATA}/base" ]; then
+          rm -rf "${OLD}" "${NEW}" delete_old_cluster.sh
+      else
+          echo "CRITICAL ERROR: Data directory appears empty. Refusing to delete backup ${OLD}"
+          exit 1
+      fi
       echo "---------------------------------------------"
       echo "Removing left over database files is complete"
       echo "---------------------------------------------"
@@ -377,9 +376,6 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "================================================================================="
       echo "STEP 2 Complete: PostgreSQL upgraded from ${DB_VERSION} to ${PG_MAJOR}"
       echo "================================================================================="
-
-      # Return the error handling back to automatically aborting on non-0 exit status
-      set -e
     fi
 
     # If we just did a PostgreSQL upgrade, we MUST upgrade TimescaleDB on the new cluster
@@ -481,7 +477,7 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "REINDEX completed!"
       touch "$REINDEX_FILE"
 
-      echo "Stoppig temporary server..."
+      echo "Stopping temporary server..."
       docker_temp_server_stop
     fi
 fi
