@@ -44,6 +44,7 @@ slim build --target "$SOURCE_IMAGE" \
     --tag "$TARGET_IMAGE" \
     --http-probe=false \
     --continue-after=15 \
+    --mount slim-pgdata:/var/lib/postgresql/data \  # mount volume so it starts with an empty PGDATA to initdb will be called and the components used for it will be perserved
     --expose=5432 \
     --expose=8008 \
     --expose=8081 \
