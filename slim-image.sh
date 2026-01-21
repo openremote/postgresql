@@ -40,11 +40,12 @@ esac
 
 echo "Slimming image: $SOURCE_IMAGE -> $TARGET_IMAGE (arch: $ARCH, lib: $LIB_ARCH)"
 
+# use *--mount* volume so it starts with an empty PGDATA directory to initdb will be called and the components used for it will be perserved
 slim build --target "$SOURCE_IMAGE" \
     --tag "$TARGET_IMAGE" \
     --http-probe=false \
     --continue-after=15 \
-    --mount slim-pgdata:/var/lib/postgresql/data \  # mount volume so it starts with an empty PGDATA to initdb will be called and the components used for it will be perserved
+    --mount slim-pgdata:/var/lib/postgresql/data \
     --expose=5432 \
     --expose=8008 \
     --expose=8081 \
@@ -83,5 +84,8 @@ slim build --target "$SOURCE_IMAGE" \
     --include-bin=/bin/touch \
     --include-bin=/usr/bin/id \
     --include-bin=/usr/bin/env
+
+# delete volume to always start with an empty PGDATA directory
+docker volume rm slim-pgdata
 
 echo "Successfully created slimmed image: $TARGET_IMAGE"
