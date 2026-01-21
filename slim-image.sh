@@ -66,6 +66,7 @@ slim build --target "$SOURCE_IMAGE" \
     --preserve-path=/etc/ssl \
     --include-shell \
     --include-bin=/usr/bin/timescaledb-tune \
+	--include-bin=/usr/bin/timescaledb-parallel-copy \
     --include-bin=/usr/bin/sort \
     --include-bin=/usr/bin/find \
     --include-bin=/usr/bin/xargs \
