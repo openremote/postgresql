@@ -52,16 +52,20 @@ slim build --target "$SOURCE_IMAGE" \
     --include-path=/usr/lib/postgresql \
     --include-path=/usr/lib/${LIB_ARCH} \
     --include-path=/usr/share/postgresql \
+    --include-path=/usr/share/postgresql-common \
     --include-path=/usr/share/proj \
     --include-path=/usr/share/gdal \
+	--include-path=/usr/share/pgbouncer \
+	--include-path=/usr/share/locales \
     --include-path=/etc/alternatives \
+	--include-path=/usr/local/bin \
     --preserve-path=/var/lib/postgresql \
     --preserve-path=/docker-entrypoint-initdb.d \
     --preserve-path=/or-entrypoint.sh \
     --preserve-path=/etc/postgresql \
     --preserve-path=/etc/ssl \
     --include-shell \
-    --include-bin=/usr/local/bin/timescaledb-tune \
+    --include-bin=/usr/bin/timescaledb-tune \
     --include-bin=/usr/bin/sort \
     --include-bin=/usr/bin/find \
     --include-bin=/usr/bin/xargs \
@@ -80,6 +84,7 @@ slim build --target "$SOURCE_IMAGE" \
     --include-bin=/bin/mkdir \
     --include-bin=/bin/chmod \
     --include-bin=/bin/rm \
+    --include-bin=/bin/du \
     --include-bin=/bin/cp \
     --include-bin=/bin/touch \
     --include-bin=/usr/bin/id \
