@@ -102,23 +102,22 @@ jobs:
             --no-cache-filter trimmed-all \
             $TAG .
 
-#      - name: Install slim toolkit
-#        run: |
-#          curl -sL https://raw.githubusercontent.com/slimtoolkit/slim/master/scripts/install-slim.sh | sudo -E bash -
-#
-#      - name: Slim the image
-#        run: |
-#          # Extract image name from TAG (remove -t prefix)
-#          IMAGE_NAME=$(echo "$TAG" | sed 's/-t //')
-#          chmod +x ./slim-image.sh
-#          ./slim-image.sh "$IMAGE_NAME" "${IMAGE_NAME}-slim" amd64
-#          # Replace original with slim version
-#          docker tag ${IMAGE_NAME}-slim $IMAGE_NAME
-#
+      - name: Install slim toolkit
+        run: |
+          curl -sL https://raw.githubusercontent.com/slimtoolkit/slim/master/scripts/install-slim.sh | sudo -E bash -
+
+      - name: Slim the image
+        run: |
+          # Extract image name from TAG (remove -t prefix)
+          IMAGE_NAME=$(echo "$TAG" | sed 's/-t //')
+          chmod +x ./slim-image.sh
+          ./slim-image.sh "$IMAGE_NAME" "${IMAGE_NAME}-slim" amd64
+
       - name: Push amd64 image
         run: |
           IMAGE_NAME=$(echo "$TAG" | sed 's/-t //')
           docker push $IMAGE_NAME
+          docker push ${IMAGE_NAME}-slim
 
   image_postgresql_arm64:
     needs: image_postgresql_amd64
@@ -203,19 +202,18 @@ jobs:
         run: |
           curl -sL https://raw.githubusercontent.com/slimtoolkit/slim/master/scripts/install-slim.sh | sudo -E bash -
 
-#      - name: Slim the image
-#        run: |
-#          # Extract image name from TAG (remove -t prefix)
-#          IMAGE_NAME=$(echo "$TAG" | sed 's/-t //')
-#          chmod +x ./slim-image.sh
-#          ./slim-image.sh "$IMAGE_NAME" "${IMAGE_NAME}-slim" arm64
-#          # Replace original with slim version
-#          docker tag ${IMAGE_NAME}-slim $IMAGE_NAME
+      - name: Slim the image
+        run: |
+          # Extract image name from TAG (remove -t prefix)
+          IMAGE_NAME=$(echo "$TAG" | sed 's/-t //')
+          chmod +x ./slim-image.sh
+          ./slim-image.sh "$IMAGE_NAME" "${IMAGE_NAME}-slim" arm64
 
       - name: Push arm64 image
         run: |
           IMAGE_NAME=$(echo "$TAG" | sed 's/-t //')
           docker push $IMAGE_NAME
+          docker push ${IMAGE_NAME}-slim
 
   create_manifest:
     needs: [image_postgresql_amd64, image_postgresql_arm64]
