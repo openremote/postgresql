@@ -44,7 +44,7 @@ echo "Slimming image: $SOURCE_IMAGE -> $TARGET_IMAGE (arch: $ARCH, lib: $LIB_ARC
 slim build --target "$SOURCE_IMAGE" \
     --tag "$TARGET_IMAGE" \
     --http-probe=false \
-    --continue-after=15 \
+    --continue-after=60 \
     --mount slim-pgdata:/var/lib/postgresql/data \
     --expose=5432 \
     --expose=8008 \
@@ -55,10 +55,10 @@ slim build --target "$SOURCE_IMAGE" \
     --include-path=/usr/share/postgresql-common \
     --include-path=/usr/share/proj \
     --include-path=/usr/share/gdal \
-	--include-path=/usr/share/pgbouncer \
-	--include-path=/usr/share/locales \
+    --include-path=/usr/share/pgbouncer \
+    --include-path=/usr/share/locales \
     --include-path=/etc/alternatives \
-	--include-path=/usr/local/bin \
+    --include-path=/usr/local/bin \
     --preserve-path=/var/lib/postgresql \
     --preserve-path=/docker-entrypoint-initdb.d \
     --preserve-path=/or-entrypoint.sh \
@@ -89,7 +89,17 @@ slim build --target "$SOURCE_IMAGE" \
     --include-bin=/bin/cp \
     --include-bin=/bin/touch \
     --include-bin=/usr/bin/id \
-    --include-bin=/usr/bin/env
+    --include-bin=/usr/bin/env \
+    --include-bin=/bin/sleep \
+    --include-bin=/usr/bin/ls \
+    --include-bin=/usr/bin/test \
+    --include-bin=/usr/bin/psql \
+    --include-bin=/usr/bin/pg_isready \
+    --include-bin=/usr/bin/locale \
+    --include-bin=/usr/bin/localedef \
+    --include-bin=/usr/bin/less \
+    --include-bin=/bin/ln \
+    --include-bin=/usr/bin/chown
 
 # delete volume to always start with an empty PGDATA directory
 docker volume rm slim-pgdata

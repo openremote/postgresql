@@ -382,6 +382,7 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
     # pg_upgrade copies extension metadata but doesn't upgrade extensions
     # STEP 1 upgraded TS on the OLD cluster, but pg_upgrade created a NEW cluster
     if [ "$DB_VERSION" != "$PG_MAJOR" ] && [ "$OR_DISABLE_AUTO_UPGRADE" != "true" ]; then
+      DB_VERSION=$(cat "${PGDATA}/PG_VERSION")
       echo "---------------------------------------------------------------------------------"
       echo "STEP 3: Running Timescale DB upgrade for PG $DB_VERSION"
       echo "---------------------------------------------------------------------------------"
