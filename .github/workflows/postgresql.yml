@@ -226,11 +226,18 @@ jobs:
             echo "TAG=openremote/postgresql:develop" >> $GITHUB_ENV
             echo "TAG_AMD64=openremote/postgresql:develop-amd64" >> $GITHUB_ENV
             echo "TAG_ARM64=openremote/postgresql:develop-arm64" >> $GITHUB_ENV
+            echo "TAG_SLIM=openremote/postgresql:develop-slim" >> $GITHUB_ENV
+            echo "TAG_SLIM_AMD64=openremote/postgresql:develop-slim-amd64" >> $GITHUB_ENV
+            echo "TAG_SLIM_ARM64=openremote/postgresql:develop-slim-arm64" >> $GITHUB_ENV
           else
             echo "TAG=openremote/postgresql:$TAG" >> $GITHUB_ENV
             echo "TAG_LATEST=openremote/postgresql:latest" >> $GITHUB_ENV
             echo "TAG_AMD64=openremote/postgresql:$TAG-amd64" >> $GITHUB_ENV
             echo "TAG_ARM64=openremote/postgresql:$TAG-arm64" >> $GITHUB_ENV
+            echo "TAG_SLIM=openremote/postgresql:$TAG-slim" >> $GITHUB_ENV
+            echo "TAG_SLIM_LATEST=openremote/postgresql:latest-slim" >> $GITHUB_ENV
+            echo "TAG_SLIM_AMD64=openremote/postgresql:$TAG-slim-amd64" >> $GITHUB_ENV
+            echo "TAG_SLIM_ARM64=openremote/postgresql:$TAG-slim-arm64" >> $GITHUB_ENV
           fi
         env:
           TAG: ${{ github.event.release.tag_name }}
@@ -246,4 +253,11 @@ jobs:
           docker buildx imagetools create -t $TAG $TAG_AMD64 $TAG_ARM64
           if [ ! -z "$TAG_LATEST" ]; then
             docker buildx imagetools create -t $TAG_LATEST $TAG_AMD64 $TAG_ARM64
+          fi
+          
+      - name: Create and push multi-arch manifest for slim images
+        run: |
+          docker buildx imagetools create -t $TAG_SLIM $TAG_SLIM_AMD64 $TAG_SLIM_ARM64
+          if [ ! -z "$TAG_SLIM_LATEST" ]; then
+            docker buildx imagetools create -t $TAG_SLIM_LATEST $TAG_SLIM_AMD64 $TAG_SLIM_ARM64
           fi
