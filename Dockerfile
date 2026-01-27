@@ -1,9 +1,8 @@
 ARG PG_MAJOR=17
 ARG PREV_PG_MAJOR=15
-ARG TIMESCALE_VERSION=2.22
 
 # Stage 1: Get PostgreSQL ${PREV_PG_MAJOR} binaries for upgrade support
-FROM timescale/timescaledb-ha:pg${PG_MAJOR}-ts${TIMESCALE_VERSION}-all AS pg-all
+FROM timescale/timescaledb-ha:pg${PG_MAJOR}-all AS pg-all
 
 USER root
 
@@ -18,7 +17,7 @@ RUN find /usr/lib/postgresql/${PREV_PG_MAJOR} -type f -name '*.so*' -exec strip 
               /usr/share/postgresql/${PREV_PG_MAJOR}/contrib
 
 # Stage 2: Prepare the main image with UID/GID changes and cleanup
-FROM timescale/timescaledb-ha:pg${PG_MAJOR}-ts${TIMESCALE_VERSION} AS final
+FROM timescale/timescaledb-ha:pg${PG_MAJOR} AS final
 LABEL maintainer="support@openremote.io"
 
 USER root
