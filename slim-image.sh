@@ -57,6 +57,7 @@ slim build --target "$SOURCE_IMAGE" \
     --include-path=/usr/share/gdal \
     --include-path=/usr/share/pgbouncer \
     --include-path=/usr/share/locales \
+    --include-path=/usr/share/zoneinfo \
     --include-path=/etc/alternatives \
     --include-path=/usr/local/bin \
     --preserve-path=/var/lib/postgresql \
