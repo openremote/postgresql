@@ -113,6 +113,7 @@ ENV PGROOT=/var/lib/postgresql \
     OR_DISABLE_AUTO_UPGRADE=${OR_DISABLE_AUTO_UPGRADE:-false}
 
 WORKDIR /var/lib/postgresql
+VOLUME /var/lib/postgresql/data
 EXPOSE 5432 8008 8081
 USER postgres
 
