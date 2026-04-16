@@ -1,263 +1,232 @@
-# This is a basic workflow to help you get started with Actions
-
 name: Docker Image
 
-# Controls when the action will run. 
 on:
-       
   # When a release is published
   release:
     types: [published]
 
-  # Push excluding tags and workflow changes
+  # Push excluding tags and Markdown-only changes
   push:
     branches:
-        - main
+      - main
     tags-ignore:
       - '*.*'
     paths-ignore:
       - '**/*.md'
 
+  # Validate pull requests without publishing
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+
+  # Manual trigger
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.ref }}
   cancel-in-progress: true
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+env:
+  IMAGE_NAME: ${{ vars.DOCKERHUB_NAMESPACE || github.repository_owner }}/postgresql
+
 jobs:
-  image_postgresql_amd64:
+  build_arch_images:
+    name: Build ${{ matrix.arch }}
     runs-on: ubuntu-latest
-    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+          - arch: arm64
+            platform: linux/arm64
+
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      is_versioned: ${{ steps.meta.outputs.is_versioned }}
+
     steps:
       - name: Free up disk space
+        shell: bash
         run: |
           echo "Disk space before cleanup:"
           df -h
-          
+
           # Remove large directories
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/.ghcup
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          
+          sudo rm -rf /usr/share/dotnet \
+                      /usr/local/lib/android \
+                      /opt/ghc \
+                      /usr/local/.ghcup \
+                      /opt/hostedtoolcache/CodeQL || true
+
           # Remove large packages
-          sudo apt-get remove -y '^aspnetcore-.*' || true
-          sudo apt-get remove -y '^dotnet-.*' || true
-          sudo apt-get remove -y '^llvm-.*' || true
-          sudo apt-get remove -y 'php.*' || true
-          sudo apt-get remove -y '^mongodb-.*' || true
-          sudo apt-get remove -y '^mysql-.*' || true
-          sudo apt-get remove -y azure-cli google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri || true
-          sudo apt-get remove -y google-cloud-sdk google-cloud-cli || true
+          sudo apt-get remove -y '^aspnetcore-.*' '^dotnet-.*' '^llvm-.*' 'php.*' \
+            '^mongodb-.*' '^mysql-.*' azure-cli google-chrome-stable firefox \
+            powershell mono-devel libgl1-mesa-dri google-cloud-sdk google-cloud-cli || true
           sudo apt-get autoremove -y
           sudo apt-get clean
-          
+
           # Remove Docker images
-          sudo docker image prune --all --force
-          
+          sudo docker image prune --all --force || true
+
           # Remove swap storage
           sudo swapoff -a || true
           sudo rm -f /mnt/swapfile || true
-          
+
           echo "Disk space after cleanup:"
           df -h
-          
-      - name: Set tags
-        run: |
-          if [ -z "$TAG" ]; then
-            echo "TAG=-t openremote/postgresql:develop-amd64" >> $GITHUB_ENV
-          else
-            echo "TAG=-t openremote/postgresql:$TAG-amd64" >> $GITHUB_ENV
-          fi
-        env:
-          TAG: ${{ github.event.release.tag_name }}
-          
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
-      
-      - name: set up QEMU
-        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
         with:
           platforms: all
-          
-      - name: install buildx
-        id: buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
-        with:
-          version: latest
-          install: true
-          
-      - name: Login to DockerHub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           username: ${{ secrets._TEMP_DOCKERHUB_USER }}
           password: ${{ secrets._TEMP_DOCKERHUB_PASSWORD }}
-        
-      - name: Build amd64 image locally
+
+      - name: Compute image metadata
+        id: meta
+        shell: bash
         run: |
-          docker buildx build \
-            --build-arg GIT_COMMIT=${{ github.sha }} \
-            --load \
-            --platform linux/amd64 \
-            --no-cache-filter trimmed \
-            --no-cache-filter trimmed-all \
-            $TAG .
+          VERSION=""
+          IS_VERSIONED="false"
+
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            IS_VERSIONED="true"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ "${{ github.ref_type }}" == "tag" ]]; then
+              VERSION="${{ github.ref_name }}"
+              IS_VERSIONED="true"
+            elif [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+              echo "workflow_dispatch must be run on main or on a tag"
+              exit 1
+            fi
+          fi
+
+          if [[ "$IS_VERSIONED" == "true" ]]; then
+            BASE_TAG="${IMAGE_NAME}:${VERSION}-${{ matrix.arch }}"
+            SLIM_TAG="${IMAGE_NAME}:${VERSION}-${{ matrix.arch }}-slim"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            BASE_TAG="${IMAGE_NAME}:develop-${{ matrix.arch }}"
+            SLIM_TAG="${IMAGE_NAME}:develop-${{ matrix.arch }}-slim"
+          else
+            BASE_TAG="${IMAGE_NAME}:pr-${{ github.event.pull_request.number || github.run_number }}-${{ matrix.arch }}"
+            SLIM_TAG="${IMAGE_NAME}:pr-${{ github.event.pull_request.number || github.run_number }}-${{ matrix.arch }}-slim"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "is_versioned=$IS_VERSIONED" >> "$GITHUB_OUTPUT"
+          echo "base_tag=$BASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "slim_tag=$SLIM_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build base image
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          push: false
+          tags: ${{ steps.meta.outputs.base_tag }}
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=postgresql-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=postgresql-${{ matrix.arch }}
+          no-cache-filters: |
+            trimmed
+            trimmed-all
+
+      - name: Scan base Docker image
+        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        id: anchore-scan
+        with:
+          image: ${{ steps.meta.outputs.base_tag }}
+          fail-build: false
+          severity-cutoff: critical
+
+      - name: Upload Anchore scan SARIF report
+        if: ${{ !cancelled() && github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main') }}
+        uses: github/codeql-action/upload-sarif@c10b8064de6f491fea524254123dbe5e09572f13 # v4.35.1
+        with:
+          sarif_file: ${{ steps.anchore-scan.outputs.sarif }}
+          category: grype-${{ matrix.arch }}
 
       - name: Install slim toolkit
+        shell: bash
         run: |
           curl -sL https://raw.githubusercontent.com/slimtoolkit/slim/master/scripts/install-slim.sh | sudo -E bash -
 
       - name: Slim the image
+        shell: bash
         run: |
-          # Extract image name from TAG (remove -t prefix)
-          IMAGE_NAME=$(echo "$TAG" | sed 's/-t //')
           chmod +x ./slim-image.sh
-          ./slim-image.sh "$IMAGE_NAME" "${IMAGE_NAME}-slim" amd64
+          ./slim-image.sh "${{ steps.meta.outputs.base_tag }}" "${{ steps.meta.outputs.slim_tag }}" "${{ matrix.arch }}"
 
-      - name: Push amd64 image
+      - name: Push arch images
+        if: github.event_name != 'pull_request'
+        shell: bash
         run: |
-          IMAGE_NAME=$(echo "$TAG" | sed 's/-t //')
-          docker push $IMAGE_NAME
-          docker push ${IMAGE_NAME}-slim
+          docker push "${{ steps.meta.outputs.base_tag }}"
+          docker push "${{ steps.meta.outputs.slim_tag }}"
 
-  image_postgresql_arm64:
-    needs: image_postgresql_amd64
+  create_manifests:
+    name: Create manifests
+    needs: build_arch_images
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Free up disk space
-        run: |
-          echo "Disk space before cleanup:"
-          df -h
-          
-          # Remove large directories
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/.ghcup
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          
-          # Remove large packages
-          sudo apt-get remove -y '^aspnetcore-.*' || true
-          sudo apt-get remove -y '^dotnet-.*' || true
-          sudo apt-get remove -y '^llvm-.*' || true
-          sudo apt-get remove -y 'php.*' || true
-          sudo apt-get remove -y '^mongodb-.*' || true
-          sudo apt-get remove -y '^mysql-.*' || true
-          sudo apt-get remove -y azure-cli google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri || true
-          sudo apt-get remove -y google-cloud-sdk google-cloud-cli || true
-          sudo apt-get autoremove -y
-          sudo apt-get clean
-          
-          # Remove Docker images
-          sudo docker image prune --all --force
-          
-          # Remove swap storage
-          sudo swapoff -a || true
-          sudo rm -f /mnt/swapfile || true
-          
-          echo "Disk space after cleanup:"
-          df -h
-          
-      - name: Set tags
-        run: |
-          if [ -z "$TAG" ]; then
-            echo "TAG=-t openremote/postgresql:develop-arm64" >> $GITHUB_ENV
-          else
-            echo "TAG=-t openremote/postgresql:$TAG-arm64" >> $GITHUB_ENV
-          fi
-        env:
-          TAG: ${{ github.event.release.tag_name }}
-          
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
-      
-      - name: set up QEMU
-        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392
-        with:
-          platforms: all
-          
-      - name: install buildx
-        id: buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
-        with:
-          version: latest
-          install: true
-          
-      - name: Login to DockerHub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef
+      - name: Log in to Docker Hub
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           username: ${{ secrets._TEMP_DOCKERHUB_USER }}
           password: ${{ secrets._TEMP_DOCKERHUB_PASSWORD }}
-        
-      - name: Build arm64 image locally
-        run: |
-          docker buildx build \
-            --build-arg GIT_COMMIT=${{ github.sha }} \
-            --load \
-            --platform linux/arm64 \
-            --no-cache-filter trimmed \
-            --no-cache-filter trimmed-all \
-            $TAG .
 
-      - name: Install slim toolkit
+      - name: Create manifest tags
+        shell: bash
         run: |
-          curl -sL https://raw.githubusercontent.com/slimtoolkit/slim/master/scripts/install-slim.sh | sudo -E bash -
+          VERSION="${{ needs.build_arch_images.outputs.version }}"
+          IS_VERSIONED="${{ needs.build_arch_images.outputs.is_versioned }}"
 
-      - name: Slim the image
-        run: |
-          # Extract image name from TAG (remove -t prefix)
-          IMAGE_NAME=$(echo "$TAG" | sed 's/-t //')
-          chmod +x ./slim-image.sh
-          ./slim-image.sh "$IMAGE_NAME" "${IMAGE_NAME}-slim" arm64
+          if [[ "$IS_VERSIONED" == "true" ]]; then
+            TAG="${IMAGE_NAME}:${VERSION}"
+            TAG_LATEST="${IMAGE_NAME}:latest"
+            TAG_AMD64="${IMAGE_NAME}:${VERSION}-amd64"
+            TAG_ARM64="${IMAGE_NAME}:${VERSION}-arm64"
 
-      - name: Push arm64 image
-        run: |
-          IMAGE_NAME=$(echo "$TAG" | sed 's/-t //')
-          docker push $IMAGE_NAME
-          docker push ${IMAGE_NAME}-slim
+            TAG_SLIM="${IMAGE_NAME}:${VERSION}-slim"
+            TAG_SLIM_LATEST="${IMAGE_NAME}:latest-slim"
+            TAG_SLIM_AMD64="${IMAGE_NAME}:${VERSION}-amd64-slim"
+            TAG_SLIM_ARM64="${IMAGE_NAME}:${VERSION}-arm64-slim"
 
-  create_manifest:
-    needs: [image_postgresql_amd64, image_postgresql_arm64]
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Set tags
-        run: |
-          if [ -z "$TAG" ]; then
-            echo "TAG=openremote/postgresql:develop" >> $GITHUB_ENV
-            echo "TAG_AMD64=openremote/postgresql:develop-amd64" >> $GITHUB_ENV
-            echo "TAG_ARM64=openremote/postgresql:develop-arm64" >> $GITHUB_ENV
-            echo "TAG_SLIM=openremote/postgresql:develop-slim" >> $GITHUB_ENV
-            echo "TAG_SLIM_AMD64=openremote/postgresql:develop-amd64-slim" >> $GITHUB_ENV
-            echo "TAG_SLIM_ARM64=openremote/postgresql:develop-arm64-slim" >> $GITHUB_ENV
+            docker buildx imagetools create -t "$TAG" -t "$TAG_LATEST" "$TAG_AMD64" "$TAG_ARM64"
+            docker buildx imagetools create -t "$TAG_SLIM" -t "$TAG_SLIM_LATEST" "$TAG_SLIM_AMD64" "$TAG_SLIM_ARM64"
           else
-            echo "TAG=openremote/postgresql:$TAG" >> $GITHUB_ENV
-            echo "TAG_LATEST=openremote/postgresql:latest" >> $GITHUB_ENV
-            echo "TAG_AMD64=openremote/postgresql:$TAG-amd64" >> $GITHUB_ENV
-            echo "TAG_ARM64=openremote/postgresql:$TAG-arm64" >> $GITHUB_ENV
-            echo "TAG_SLIM=openremote/postgresql:$TAG-slim" >> $GITHUB_ENV
-            echo "TAG_SLIM_LATEST=openremote/postgresql:latest-slim" >> $GITHUB_ENV
-            echo "TAG_SLIM_AMD64=openremote/postgresql:$TAG-amd64-slim" >> $GITHUB_ENV
-            echo "TAG_SLIM_ARM64=openremote/postgresql:$TAG-arm64-slim" >> $GITHUB_ENV
-          fi
-        env:
-          TAG: ${{ github.event.release.tag_name }}
-          
-      - name: Login to DockerHub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef
-        with:
-          username: ${{ secrets._TEMP_DOCKERHUB_USER }}
-          password: ${{ secrets._TEMP_DOCKERHUB_PASSWORD }}
-          
-      - name: Create and push multi-arch manifest
-        run: |
-          docker buildx imagetools create -t $TAG $TAG_AMD64 $TAG_ARM64
-          if [ ! -z "$TAG_LATEST" ]; then
-            docker buildx imagetools create -t $TAG_LATEST $TAG_AMD64 $TAG_ARM64
-          fi
-          
-      - name: Create and push multi-arch manifest for slim images
-        run: |
-          docker buildx imagetools create -t $TAG_SLIM $TAG_SLIM_AMD64 $TAG_SLIM_ARM64
-          if [ ! -z "$TAG_SLIM_LATEST" ]; then
-            docker buildx imagetools create -t $TAG_SLIM_LATEST $TAG_SLIM_AMD64 $TAG_SLIM_ARM64
+            TAG="${IMAGE_NAME}:develop"
+            TAG_AMD64="${IMAGE_NAME}:develop-amd64"
+            TAG_ARM64="${IMAGE_NAME}:develop-arm64"
+
+            TAG_SLIM="${IMAGE_NAME}:develop-slim"
+            TAG_SLIM_AMD64="${IMAGE_NAME}:develop-amd64-slim"
+            TAG_SLIM_ARM64="${IMAGE_NAME}:develop-arm64-slim"
+
+            docker buildx imagetools create -t "$TAG" "$TAG_AMD64" "$TAG_ARM64"
+            docker buildx imagetools create -t "$TAG_SLIM" "$TAG_SLIM_AMD64" "$TAG_SLIM_ARM64"
           fi
