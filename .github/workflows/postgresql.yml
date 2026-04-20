@@ -71,7 +71,7 @@ jobs:
           if [ -z "$TAG" ]; then
             echo "TAG=-t openremote/postgresql:develop" >> $GITHUB_ENV
           else
-            echo "TAG=-t openremote/postgresql:latest -t openremote/postgresql:$TAG" >> $GITHUB_ENV
+            echo "TAG=-t openremote/postgresql:$TAG" >> $GITHUB_ENV
           fi
         env:
           TAG: ${{ github.event.release.tag_name }}
