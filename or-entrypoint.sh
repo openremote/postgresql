@@ -61,6 +61,8 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
 
     ########################################################################################
     # Do upgrade checks - Adapted from https://github.com/pgautoupgrade/docker-pgautoupgrade
+    # IMPORTANT: TimescaleDB must be upgraded BEFORE PostgreSQL upgrade
+    # See: https://docs.tigerdata.com/self-hosted/latest/upgrades/major-upgrade/
     ########################################################################################
 
     # Get the version of the PostgreSQL data files
@@ -75,8 +77,79 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "---------------------------------------------------------------------------------"
     fi
 
-    # Try and upgrade if needed
+    # STEP 1: Upgrade TimescaleDB on OLD PostgreSQL version (if needed)
+    # This must happen BEFORE pg_upgrade so both old and new PG have the same TS version
     if [ "$DB_VERSION" != "$PG_MAJOR" ] && [ "$OR_DISABLE_AUTO_UPGRADE" != "true" ]; then
+      echo "================================================================================="
+      echo "STEP 1: Upgrading TimescaleDB on PostgreSQL ${DB_VERSION} before PG upgrade..."
+      echo "================================================================================="
+      
+      # Start temporary server on OLD PostgreSQL version
+      echo "Starting temporary PostgreSQL ${DB_VERSION} server..."
+      
+      # Temporarily update PATH to use old PostgreSQL version
+      OLD_PATH=$PATH
+      export PATH="/usr/lib/postgresql/${DB_VERSION}/bin:$PATH"
+      
+      docker_temp_server_start "$@"
+      
+      # Don't automatically abort on non-0 exit status, just in case timescaledb extension isn't installed
+      set +e
+      
+      # Get the latest TimescaleDB version available
+      TS_VERSION_REGEX="\-\-([0-9|\.]+)\."
+      TS_SCRIPT_NAME=$(find /usr/share/postgresql/$PG_MAJOR/extension/ -type f -name "timescaledb--*.sql" | sort | tail -n 1)
+      if [ "$TS_SCRIPT_NAME" != "" ] && [[ $TS_SCRIPT_NAME =~ $TS_VERSION_REGEX ]]; then
+        TARGET_TS_VERSION=${BASH_REMATCH[1]}
+        echo "Target TimescaleDB version available: ${TARGET_TS_VERSION}"
+        
+        # Upgrade TimescaleDB in ALL databases that have it installed
+        # This is critical because template1, postgres, and user databases may all have TimescaleDB
+        # We must include template databases because template1 often has TimescaleDB installed
+        echo "Finding all databases with TimescaleDB extension..."
+        DATABASES=$(docker_process_sql -X -t -c "SELECT datname FROM pg_database WHERE datallowconn;" | grep -v "^$")
+        
+        for DB in $DATABASES; do
+          echo "Checking database: $DB"
+          HAS_TS=$(docker_process_sql -X -d "$DB" -c "SELECT 1 FROM pg_extension WHERE extname='timescaledb';" | grep -v "^$" | wc -l)
+          
+          if [ "$HAS_TS" -gt 0 ]; then
+            CURRENT_TS_VERSION=$(docker_process_sql -X -d "$DB" -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';" | grep -v extversion | grep -v row | tr -d ' ')
+            echo "  Database $DB has TimescaleDB ${CURRENT_TS_VERSION}, upgrading..."
+            docker_process_sql -X -d "$DB" -c "ALTER EXTENSION timescaledb UPDATE;"
+            NEW_TS_VERSION=$(docker_process_sql -X -d "$DB" -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';" | grep -v extversion | grep -v row | tr -d ' ')
+            echo "  Upgraded: ${CURRENT_TS_VERSION} -> ${NEW_TS_VERSION}"
+            
+            # Also upgrade toolkit if present
+            HAS_TOOLKIT=$(docker_process_sql -X -d "$DB" -c "SELECT 1 FROM pg_extension WHERE extname='timescaledb_toolkit';" | grep -v "^$" | wc -l)
+            if [ "$HAS_TOOLKIT" -gt 0 ]; then
+              echo "  Upgrading timescaledb_toolkit in $DB..."
+              docker_process_sql -X -d "$DB" -c "ALTER EXTENSION timescaledb_toolkit UPDATE;"
+            fi
+          fi
+        done
+        
+        echo "TimescaleDB upgrade complete in all databases"
+      fi
+      
+      # Return error handling back to automatically aborting on non-0 exit status
+      set -e
+      
+      docker_temp_server_stop
+      
+      # Restore PATH
+      export PATH=$OLD_PATH
+      
+      echo "================================================================================="
+      echo "STEP 1 Complete: TimescaleDB upgraded on PostgreSQL ${DB_VERSION}"
+      echo "================================================================================="
+    fi
+
+    # STEP 2: Upgrade PostgreSQL if needed
+    if [ "$DB_VERSION" != "$PG_MAJOR" ] && [ "$OR_DISABLE_AUTO_UPGRADE" != "true" ]; then
+      echo "================================================================================="
+      echo "STEP 2: Upgrading PostgreSQL from ${DB_VERSION} to ${PG_MAJOR}..."
+      echo "================================================================================="
 
       echo "---------------------------------------------------------------------------------"
       echo "Postgres major version is newer than the existing DB, performing auto upgrade..."
@@ -193,7 +266,25 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "---------------------------------------"
       echo "Running pg_upgrade command, from $(pwd)"
       echo "---------------------------------------"
-      pg_upgrade --link -b /usr/lib/postgresql/${DB_VERSION}/bin -B /usr/lib/postgresql/${PG_MAJOR}/bin -d $OLD -D $NEW
+      # Specify socket directories for both old and new clusters
+      # Use --check first to see what issues exist
+      echo "Running pg_upgrade --check first..."
+      pg_upgrade --check \
+        -b /usr/lib/postgresql/${DB_VERSION}/bin \
+        -B /usr/lib/postgresql/${PG_MAJOR}/bin \
+        -d $OLD \
+        -D $NEW \
+        -o "-c unix_socket_directories='${PGSOCKET}'" \
+        -O "-c unix_socket_directories='${PGSOCKET}'" || true
+      
+      echo "Running actual pg_upgrade with --link..."
+      pg_upgrade --link \
+        -b /usr/lib/postgresql/${DB_VERSION}/bin \
+        -B /usr/lib/postgresql/${PG_MAJOR}/bin \
+        -d $OLD \
+        -D $NEW \
+        -o "-c unix_socket_directories='${PGSOCKET}'" \
+        -O "-c unix_socket_directories='${PGSOCKET}'"
       echo "--------------------------------------"
       echo "Running pg_upgrade command is complete"
       echo "--------------------------------------"
@@ -238,14 +329,15 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "Removing left over database files is complete"
       echo "---------------------------------------------"
 
-      echo "**********************************************************"
-      echo "Automatic upgrade process finished with no errors reported"
-      echo "**********************************************************"
+      echo "================================================================================="
+      echo "STEP 2 Complete: PostgreSQL upgraded from ${DB_VERSION} to ${PG_MAJOR}"
+      echo "================================================================================="
 
       # Return the error handling back to automatically aborting on non-0 exit status
       set -e
     fi
 
+    # STEP 3: Upgrade TimescaleDB on NEW PostgreSQL version (if needed)
     # Do timescale upgrade if needed - First look for latest extension version number in extension files
     echo "----------------------------------------------------------"
     echo "Checking latest available TimescaleDB extension version..."
@@ -295,14 +387,23 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       fi
     fi
 
-    if [ "$DO_TS_UPGRADE" == "true" ]  && [ "$OR_DISABLE_AUTO_UPGRADE" == "true" ]; then
-      echo "----------------------------------------------------------------------------------"
-      echo "TimescaleDB upgrade can be performed but OR_DISABLE_AUTO_UPGRADE=true so skipping!"
-      echo "----------------------------------------------------------------------------------"
-    fi
+    # Only do this upgrade if we're NOT in the middle of a PostgreSQL upgrade
+    # (TimescaleDB was already upgraded in STEP 1 before pg_upgrade)
+    if [ "$DB_VERSION" == "$PG_MAJOR" ]; then
+      if [ "$DO_TS_UPGRADE" == "true" ]  && [ "$OR_DISABLE_AUTO_UPGRADE" == "true" ]; then
+        echo "----------------------------------------------------------------------------------"
+        echo "TimescaleDB upgrade can be performed but OR_DISABLE_AUTO_UPGRADE=true so skipping!"
+        echo "----------------------------------------------------------------------------------"
+      fi
 
-    if [ "${OR_DISABLE_AUTO_UPGRADE}" == "true" ]; then
+      if [ "${OR_DISABLE_AUTO_UPGRADE}" == "true" ]; then
+        DO_TS_UPGRADE=false
+      fi
+    else
+      # PostgreSQL version mismatch means we're in upgrade mode
+      # TimescaleDB upgrade already happened in STEP 1
       DO_TS_UPGRADE=false
+      echo "Skipping TimescaleDB upgrade check - already upgraded in STEP 1 before pg_upgrade"
     fi
 
 
@@ -335,26 +436,34 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "-------------------------"
       docker_temp_server_start "$@"
 
+      # STEP 3: Upgrade TimescaleDB on new PostgreSQL version (if needed)
       # Cannot do this on a running DB as the extension is configured to preload
       if [ "$DO_TS_UPGRADE" == "true" ]; then
-        echo "------------------------"
-        echo "Performing TS upgrade..."
-        echo "------------------------"
+        echo "================================================================================="
+        echo "STEP 3: Upgrading TimescaleDB on PostgreSQL ${PG_MAJOR}..."
+        echo "================================================================================="
+
+        # Get current version
+        CURRENT_TS_VERSION=$(docker_process_sql -X -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';" | grep -v extversion | grep -v row | tr -d ' ')
+        echo "Current TimescaleDB version: ${CURRENT_TS_VERSION}"
+        echo "Target TimescaleDB version: ${TS_VERSION}"
 
         # Don't automatically abort on non-0 exit status, just in case timescaledb extension isn't installed on the DB
 		set +e
         docker_process_sql -X -c "ALTER EXTENSION timescaledb UPDATE;"
 		
 		if [ $? -eq 0 ]; then
+           NEW_TS_VERSION=$(docker_process_sql -X -c "SELECT extversion FROM pg_extension WHERE extname='timescaledb';" | grep -v extversion | grep -v row | tr -d ' ')
+           echo "TimescaleDB upgraded: ${CURRENT_TS_VERSION} -> ${NEW_TS_VERSION}"
            docker_process_sql -c "CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit; ALTER EXTENSION timescaledb_toolkit UPDATE;"
 		fi
 		
 		# Return the error handling back to automatically aborting on non-0 exit status
         set -e
 
-        echo "-------------------"
-        echo "TS upgrade complete"
-        echo "-------------------"
+        echo "================================================================================="
+        echo "STEP 3 Complete: TimescaleDB upgraded on PostgreSQL ${PG_MAJOR}"
+        echo "================================================================================="
         echo "$TS_VERSION" > "${PGDATA}/OR_TS_VERSION"
       fi
 
@@ -377,4 +486,4 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
     fi
 fi
 
-exec /docker-entrypoint.sh $@
+exec /usr/local/bin/docker-entrypoint.sh $@
