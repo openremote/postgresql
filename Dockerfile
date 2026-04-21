@@ -2,7 +2,7 @@
 ARG PG_MAJOR_PREVIOUS=14
 ARG PG_MAJOR=15
 
-FROM timescaledev/timescaledb-ha:pg15-multi as trimmed
+FROM timescaledev/timescaledb-ha:pg15-ts2.23 as trimmed
 MAINTAINER support@openremote.io
 
 USER root
@@ -28,8 +28,8 @@ RUN chmod +x /docker-entrypoint-initdb.d/*
 # Below is mostly copied from https://github.com/timescale/timescaledb-docker-ha/blob/master/Dockerfile (with OR specific entrypoint,
 # workdir and OR env defaults)
 
-# Get multi all image
-FROM timescaledev/timescaledb-ha:pg15-multi-all as trimmed-all
+# Get previous image
+FROM timescaledev/timescaledb-ha:pg14-ts2.17 as previous
 
 ## Create a smaller Docker image from the builder image
 FROM scratch
@@ -39,12 +39,8 @@ ARG PG_MAJOR_PREVIOUS
 ARG PG_MAJOR
 
 ## Copy previous PG MAJOR version executable
-COPY --from=trimmed-all /usr/lib/postgresql/${PG_MAJOR_PREVIOUS} /usr/lib/postgresql/${PG_MAJOR_PREVIOUS}
-COPY --from=trimmed-all /usr/share/postgresql/${PG_MAJOR_PREVIOUS} /usr/share/postgresql/${PG_MAJOR_PREVIOUS}
-
-## Copy extensions from multi-all as some images don't contain all versions of timescaleDB extension (build issue with timescale DB images)
-COPY --from=trimmed-all /usr/lib/postgresql/${PG_MAJOR}/lib /usr/lib/postgresql/${PG_MAJOR}/lib
-COPY --from=trimmed-all /usr/share/postgresql/${PG_MAJOR}/extension /usr/share/postgresql/${PG_MAJOR}/extension
+COPY --from=previous /usr/lib/postgresql/${PG_MAJOR_PREVIOUS} /usr/lib/postgresql/${PG_MAJOR_PREVIOUS}
+COPY --from=previous /usr/share/postgresql/${PG_MAJOR_PREVIOUS} /usr/share/postgresql/${PG_MAJOR_PREVIOUS}
 
 # Increment this to indicate that a re-index should be carried out on first startup with existing data; REINDEX can still be overidden
 # with OR_DISABLE_REINDEX=true
