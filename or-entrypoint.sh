@@ -58,7 +58,14 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
     if [ -s "${PGDATA}/PG_VERSION" ]; then
       DB_VERSION=$(cat "${PGDATA}/PG_VERSION")
     fi
-    
+    echo "Detected current major DB version is $DB_VERSION"
+	
+	if [ "$DB_VERSION" != "$PG_MAJOR" ]; then
+      echo "DB migration required to version $PG_MAJOR"
+    else
+      echo "DB version matches required $PG_MAJOR"
+	fi
+
     # Get the current version of the timescaleDB extension
     TS_VERSION=""
     if [ -s "${PGDATA}/OR_TS_VERSION" ]; then
@@ -96,7 +103,7 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
     echo "---------------------------------------------------------------------------------------------------------------------"
     echo "STEP 1: Looking for Timescale DB latest extension version for current PG $DB_VERSION"
     echo "---------------------------------------------------------------------------------------------------------------------"
-    LATEST_TS_VERSION=$(ls /usr/share/postgresql/$DB_VERSION/extension/timescaledb--*.sql | grep -v '.*--.*--' | sort -V | tail -n 1 | sed -E 's/.*--//;s/\.sql//')
+    LATEST_TS_VERSION=$(ls -1 /usr/lib/postgresql/$DB_VERSION/lib/timescaledb-*.so 2>/dev/null | sed -n 's/.*timescaledb-\([0-9.]*\)\.so/\1/p' | sort -V | tail -n 1)
 
     if [ -z "$LATEST_TS_VERSION" ]; then
 	  echo "---------------------------------------------------------------------------------------------------------------------"
@@ -337,7 +344,7 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       # Don't automatically abort on non-0 exit status, just in case timescaledb extension isn't installed
       set +e
 
-      LATEST_TS_VERSION=$(ls /usr/share/postgresql/$PG_MAJOR/extension/timescaledb--*.sql | grep -v '.*--.*--' | sort -V | tail -n 1 | sed -E 's/.*--//;s/\.sql//')
+      LATEST_TS_VERSION=$(ls -1 /usr/lib/postgresql/$PG_MAJOR/lib/timescaledb-*.so 2>/dev/null | sed -n 's/.*timescaledb-\([0-9.]*\)\.so/\1/p' | sort -V | tail -n 1)
       # Upgrade TimescaleDB in ALL databases that have it installed
       # This is critical because template1, postgres, and user databases may all have TimescaleDB
       # We must include template databases because template1 often has TimescaleDB installed
