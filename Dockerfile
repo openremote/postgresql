@@ -42,6 +42,10 @@ ARG PG_MAJOR
 COPY --from=trimmed-all /usr/lib/postgresql/${PG_MAJOR_PREVIOUS} /usr/lib/postgresql/${PG_MAJOR_PREVIOUS}
 COPY --from=trimmed-all /usr/share/postgresql/${PG_MAJOR_PREVIOUS} /usr/share/postgresql/${PG_MAJOR_PREVIOUS}
 
+## Copy extensions from multi-all as some images don't contain all versions of timescaleDB extension (build issue with timescale DB images)
+COPY --from=trimmed-all /usr/lib/postgresql/${PG_MAJOR}/lib /usr/lib/postgresql/${PG_MAJOR}/lib
+COPY --from=trimmed-all /usr/share/postgresql/${PG_MAJOR}/extension /usr/share/postgresql/${PG_MAJOR}/extension
+
 # Increment this to indicate that a re-index should be carried out on first startup with existing data; REINDEX can still be overidden
 # with OR_DISABLE_REINDEX=true
 ARG OR_REINDEX_COUNTER=1
