@@ -70,6 +70,20 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
     if [ -s "${PGDATA}/PG_VERSION" ]; then
       DB_VERSION=$(cat "${PGDATA}/PG_VERSION")
     fi
+	
+	echo "----------------------------------------------"
+    echo "Detected current major DB version is $DB_VERSION"
+    echo "----------------------------------------------"
+	
+	if [ "$DB_VERSION" != "$PG_MAJOR" ]; then
+	  echo "----------------------------------------------"
+      echo "DB migration required to version $PG_MAJOR"
+      echo "----------------------------------------------"
+    else
+	  echo "----------------------------------------------"
+      echo "DB version matches required $PG_MAJOR"
+      echo "----------------------------------------------"
+	fi
 
     if [ "$DB_VERSION" != "$PG_MAJOR" ]  && [ "$OR_DISABLE_AUTO_UPGRADE" == "true" ]; then
       echo "---------------------------------------------------------------------------------"
@@ -97,11 +111,12 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       set +e
       
       # Get the latest TimescaleDB version available
-      TS_VERSION_REGEX="\-\-([0-9|\.]+)\."
-      TS_SCRIPT_NAME=$(find /usr/share/postgresql/$PG_MAJOR/extension/ -type f -name "timescaledb--*.sql" | sort | tail -n 1)
-      if [ "$TS_SCRIPT_NAME" != "" ] && [[ $TS_SCRIPT_NAME =~ $TS_VERSION_REGEX ]]; then
-        TARGET_TS_VERSION=${BASH_REMATCH[1]}
-        echo "Target TimescaleDB version available: ${TARGET_TS_VERSION}"
+	  TARGET_TS_VERSION=$(ls -1 /usr/lib/postgresql/$DB_VERSION/lib/timescaledb-*.so 2>/dev/null | sed -n 's/.*timescaledb-\([0-9.]*\)\.so/\1/p' | sort -V | tail -n 1)
+
+      if [ -n "$TARGET_TS_VERSION" ]; then
+	    echo "-----------------------------------------------------------------------"
+        echo "Latest TimescaleDB extension version in current PG_MAJOR DB is $TARGET_TS_VERSION"
+        echo "-----------------------------------------------------------------------"
         
         # Upgrade TimescaleDB in ALL databases that have it installed
         # This is critical because template1, postgres, and user databases may all have TimescaleDB
@@ -342,21 +357,14 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
     echo "----------------------------------------------------------"
     echo "Checking latest available TimescaleDB extension version..."
     echo "----------------------------------------------------------"
-    TS_VERSION_REGEX="\-\-([0-9|\.]+)\."
-    TS_SCRIPT_NAME=$(find /usr/share/postgresql/$PG_MAJOR/extension/ -type f -name "timescaledb--*.sql" | sort | tail -n 1)
-    TS_VERSION=""
+	TS_VERSION=$(ls -1 /usr/lib/postgresql/$PG_MAJOR/lib/timescaledb-*.so 2>/dev/null | sed -n 's/.*timescaledb-\([0-9.]*\)\.so/\1/p' | sort -V | tail -n 1)
     TS_VERSION_FILE="${PGDATA}/OR_TS_VERSION"
 
-    if [ "$TS_SCRIPT_NAME" == "" ] || ! [[ $TS_SCRIPT_NAME =~ $TS_VERSION_REGEX ]]; then
+    if [ -n "$TS_VERSION" ]; then
       echo "------------------------------------------------------"
-      echo "Cannot determine current TimescaleDB extension version"
+      echo "Latest TimescaleDB extension version is $TS_VERSION"
       echo "------------------------------------------------------"
-      exit 15
     else
-      TS_VERSION=${BASH_REMATCH[1]}
-    fi
-
-    if [ "$TS_VERSION" == "" ]; then
       echo "------------------------------------------------------"
       echo "Cannot determine current TimescaleDB extension version"
       echo "------------------------------------------------------"
