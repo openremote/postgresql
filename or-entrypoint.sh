@@ -1,5 +1,24 @@
 #!/usr/bin/env bash
 
+# ==============================================================================
+# OpenRemote PostgreSQL & TimescaleDB Auto-Upgrade Wrapper
+# ==============================================================================
+# This script wraps the official PostgreSQL entrypoint to safely and automatically 
+# handle major version upgrades for both PostgreSQL and the TimescaleDB extension.
+#
+# Upgrade Sequence:
+# 1. PRE-FLIGHT: Upgrades TimescaleDB extension on the existing (old) PG version.
+# 2. PG UPGRADE: Migrates database files to the new major PG version using 
+#    pg_upgrade (uses --link for instantaneous, in-place upgrades).
+# 3. POST-FLIGHT: Upgrades TimescaleDB extension on the new PG version.
+# 4. HANDOFF: Passes control back to the official docker-entrypoint.sh to start.
+#
+# NOTE: Automated REINDEX logic has been removed from this script to prevent 
+# unexpected downtime. Monitor the `pg_collation_actual_version()` or use 
+# Prometheus/Grafana to detect collation library changes, and handle rebuilds 
+# online using REINDEX INDEX CONCURRENTLY.
+# ==============================================================================
+
 # THIS FILE IS FOR MIGRATION OF EXISTING DB TO TIMESCALEDB IMAGE AS TIMESCALE INIT SCRIPTS AREN'T RUN WHEN DB
 # ALREADY EXISTS; IT ALSO DOES AN AUTOMATIC REINDEX OF THE DB WHEN OR_REINDEX_COUNTER CHANGES TO SIMPLIFY MIGRATIONS
 # IT ALSO AUTOMATICALLY HANDLES UPGRADING OF DATABASE AND DURING MAJOR VERSION CHANGES
@@ -296,11 +315,10 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       cp -f "${OLD}/pg_hba.conf" "${OLD}/pg_ident.conf" "${PGDATA}"
       echo "Copying the old pg_hba and pg_ident configuration files is complete"
 
-      # Copy reindex/version files
-      echo "Copying reindex and TS version files across"
-      cp -f "${OLD}/OR_REINDEX_*" "${PGDATA}" || true
+      # Copy TS version file
+      echo "Copying TS version file across"
       cp -f "${OLD}/OR_TS_VERSION" "${PGDATA}" || true
-      echo "Copying reindex and TS version files is complete"
+      echo "Copying TS version file is complete"
       
       # Remove the left over database files
       echo "Removing left over database files..."
@@ -392,46 +410,6 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "STEP 3 Complete: Not required"
       echo "---------------------------------------------------------------------------------------------------------------------"
     fi
-
-
-
-    # STEP 4: Do re-indexing check
-    echo "---------------------------------------------------------------------------------------------------------------------"
-    echo "STEP 4: OR_REINDEX check"
-    echo "---------------------------------------------------------------------------------------------------------------------"
-    DO_REINDEX=false
-    if [ "$OR_DISABLE_REINDEX" == 'true' ] || [ -z "$OR_REINDEX_COUNTER" ]; then
-      echo "OR_DISABLE_REINDEX is true so skipping"
-    else
-      echo "Checking whether REINDEX is required..."
-      REINDEX_FILE="$PGDATA/OR_REINDEX_COUNTER.$OR_REINDEX_COUNTER"
-      if [ -f "$REINDEX_FILE" ]; then
-        echo "REINDEX file '$REINDEX_FILE' already exists so no re-indexing required"
-      else
-        echo "REINDEX file '$REINDEX_FILE' doesn't exist so re-indexing..."
-        DO_REINDEX=true
-      fi
-    fi
-
-    if [ "$DO_REINDEX" == "true" ]; then
-      echo "Starting temporary server..."
-      docker_temp_server_start "$@"
-      echo "Started temporary server"
-	  
-      echo "Running timescaledb tune script..."
-      /docker-entrypoint-initdb.d/001_timescaledb_tune.sh
-
-      echo "Re-indexing the DB..."
-      docker_process_sql -c "REINDEX database $POSTGRES_DB;"
-      echo "REINDEX completed!"
-      touch "$REINDEX_FILE"
-
-      echo "Stopping temporary server..."
-      docker_temp_server_stop
-    fi
-    echo "---------------------------------------------------------------------------------------------------------------------"
-    echo "STEP 4 Complete"
-    echo "---------------------------------------------------------------------------------------------------------------------"
 fi
 
 exec /usr/local/bin/docker-entrypoint.sh $@
