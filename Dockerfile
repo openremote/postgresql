@@ -33,7 +33,6 @@ COPY --from=pg-all /usr/share/postgresql/${PREV_PG_MAJOR} /usr/share/postgresql/
 
 # Copy entrypoint scripts
 COPY or-entrypoint.sh /
-COPY docker-entrypoint-initdb.d/ /docker-entrypoint-initdb.d/
 
 # Install fd-find, fix UID/GID, setup directories, strip binaries, and cleanup - all in one layer
 RUN apt-get update && apt-get install -y --no-install-recommends fd-find \
@@ -47,7 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends fd-find \
     && mv /home/postgres/pgdata/* /var/lib/postgresql/ \
     && chown -R postgres:postgres /var/lib/postgresql \
     # Make scripts executable
-    && chmod +x /or-entrypoint.sh /docker-entrypoint-initdb.d/* \
+    && chmod +x /or-entrypoint.sh \
     # Strip debug symbols from PostgreSQL binaries to reduce size
     && find /usr/lib/postgresql -type f -name '*.so*' -exec strip --strip-unneeded {} \; 2>/dev/null || true \
     && find /usr/lib/postgresql -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true \
