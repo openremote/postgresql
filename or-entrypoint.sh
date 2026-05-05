@@ -32,6 +32,20 @@ if [ $POSTGRES_MAX_CONNECTIONS -gt 0 ]; then
   set -- "$@" -c max_connections=${POSTGRES_MAX_CONNECTIONS}
 fi
 
+wait_for_ready() {
+  # Wait for connectivity first
+  until pg_isready -q; do
+    sleep 1
+  done
+  
+  # Execute a query to test DB is healthy
+  if ! psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "postgres" -c "SELECT * FROM pg_extension;" > /dev/null 2>&1; then
+      echo "ERROR: Database is running but system catalogs or extensions are inaccessible."
+      return 1
+  fi
+}
+
+
 echo "---------------------------------------------------------------------------------------------------------------------"
 echo "STARTING..."
 echo "---------------------------------------------------------------------------------------------------------------------"
@@ -52,32 +66,32 @@ echo "No artifacts found from a failed previous autoupgrade"
 
 if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
 
-    echo "Performing checks on existing database..."
+  echo "Performing checks on existing database..."
 
-    # Make sure timescaledb library is set to preload (won't work otherwise)
-    echo "Existing postgresql.conf found checking for shared_preload_libraries = 'timescaledb'..."
+  # Make sure timescaledb library is set to preload (won't work otherwise)
+  echo "Existing postgresql.conf found checking for shared_preload_libraries = 'timescaledb'..."
 
-    # Check if timescaledb is already in the config (anywhere in the line)
-    if grep -q "^shared_preload_libraries.*timescaledb" "$PGDATA/postgresql.conf"; then
-        echo "TimescaleDB library already present in shared_preload_libraries"
-    else
-        echo "Adding timescaledb to shared_preload_libraries..."
-        echo "shared_preload_libraries = 'timescaledb'" >> "$PGDATA/postgresql.conf"
-        echo "timescaledb.telemetry_level=off" >> "$PGDATA/postgresql.conf"
-    fi
+  # Check if timescaledb is already in the config (anywhere in the line)
+  if grep -q "^shared_preload_libraries.*timescaledb" "$PGDATA/postgresql.conf"; then
+      echo "TimescaleDB library already present in shared_preload_libraries"
+  else
+      echo "Adding timescaledb to shared_preload_libraries..."
+      echo "shared_preload_libraries = 'timescaledb'" >> "$PGDATA/postgresql.conf"
+      echo "timescaledb.telemetry_level=off" >> "$PGDATA/postgresql.conf"
+  fi
 
-    ########################################################################################
-    # Do upgrade checks - Adapted from https://github.com/pgautoupgrade/docker-pgautoupgrade
-    # IMPORTANT: TimescaleDB must be upgraded BEFORE PostgreSQL upgrade
-    # See: https://docs.tigerdata.com/self-hosted/latest/upgrades/major-upgrade/
-    ########################################################################################
+  ########################################################################################
+  # Do upgrade checks - Adapted from https://github.com/pgautoupgrade/docker-pgautoupgrade
+  # IMPORTANT: TimescaleDB must be upgraded BEFORE PostgreSQL upgrade
+  # See: https://docs.tigerdata.com/self-hosted/latest/upgrades/major-upgrade/
+  ########################################################################################
 
-    # Get the version of the PostgreSQL data files
-    DB_VERSION=$PG_MAJOR
-    if [ -s "${PGDATA}/PG_VERSION" ]; then
-      DB_VERSION=$(cat "${PGDATA}/PG_VERSION")
-    fi
-    echo "Detected current major DB version is $DB_VERSION"
+  # Get the version of the PostgreSQL data files
+  DB_VERSION=$PG_MAJOR
+  if [ -s "${PGDATA}/PG_VERSION" ]; then
+    DB_VERSION=$(cat "${PGDATA}/PG_VERSION")
+  fi
+  echo "Detected current major DB version is $DB_VERSION"
 	
 	if [ "$DB_VERSION" != "$PG_MAJOR" ]; then
       echo "DB migration required to version $PG_MAJOR"
@@ -98,11 +112,11 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
 
     # Check if the old DB version is supported for upgrade
     if [ "$DB_VERSION" != "$PG_MAJOR" ]; then
-	  if [ ! -d "/usr/lib/postgresql/$DB_VERSION" ]; then
+	    if [ ! -d "/usr/lib/postgresql/$DB_VERSION" ]; then
         echo "********************************************************************************"
         echo "ERROR: Database version ${DB_VERSION} is not supported for automatic upgrade!"
         echo "This image only supports these versions:"
-		ls /usr/lib/postgresql
+		    ls /usr/lib/postgresql
         echo ""
         echo "Options:"
         echo "  1. Use an intermediate image version that supports upgrading from ${DB_VERSION}"
@@ -131,15 +145,18 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
     else    
       if [ "$LATEST_TS_VERSION" == "$TS_VERSION" ]; then
 	    echo "---------------------------------------------------------------------------------------------------------------------"
-        echo "STEP 1 Complete: TimescaleDB already on latest version $TS_VERSION"
-        echo "---------------------------------------------------------------------------------------------------------------------"
+      echo "STEP 1 Complete: TimescaleDB already on latest version $TS_VERSION"
+      echo "---------------------------------------------------------------------------------------------------------------------"
 	  else
-        if [ "$OR_DISABLE_AUTO_UPGRADE" == "true" ]; then
+      if [ "$OR_DISABLE_AUTO_UPGRADE" == "true" ]; then
 	      echo "---------------------------------------------------------------------------------------------------------------------"
           echo "STEP 1 Warning: A newer TimescaleDB version $LATEST_TS_VERSION is available but auto upgrade is disabled"
           echo "---------------------------------------------------------------------------------------------------------------------"
         else
           echo "Upgrading Timescale DB to version $LATEST_TS_VERSION..."
+          
+          # Don't automatically abort on non-0 exit status, just in case timescaledb extension isn't installed
+          set +e
           
           # Start temporary server
           echo "Starting temporary PostgreSQL ${DB_VERSION} server..."
@@ -149,10 +166,18 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
           export PATH="/usr/lib/postgresql/${DB_VERSION}/bin:$PATH"
           
           docker_temp_server_start "$@"
-		  echo "Started temporary server"
+		      
+          wait_for_ready
           
-          # Don't automatically abort on non-0 exit status, just in case timescaledb extension isn't installed
-          set +e
+          RESULT=$?
+
+          if [ "$RESULT" -eq 1 ]; then
+            echo "ERROR: Failed to start temp server cannot continue"
+            docker_temp_server_stop
+            exit 1
+          fi
+          
+          echo "Started temporary server"
           
           INSTALLED_TS_VERSION="$LATEST_TS_VERSION"
           # Upgrade TimescaleDB in ALL databases that have it installed
@@ -206,7 +231,7 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       fi
     fi
 
-
+exit 1
 	
     # STEP 2: Upgrade PostgreSQL if needed
     echo "---------------------------------------------------------------------------------------------------------------------"
@@ -217,7 +242,7 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
 
       if [ -f "${PGDATA}/postmaster.pid" ]; then
         echo "---------------------------------------------------------------------------------------------------------------------"
-		echo "ERROR!"
+		    echo "ERROR!"
         echo "Looks like the server did not previously shutdown properly which will prevent pg_upgrade from working"
         echo "try stopping the whole stack, bringing only the postgresql container up and then stopping it again"
         echo "---------------------------------------------------------------------------------------------------------------------"
@@ -353,14 +378,24 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
       echo "---------------------------------------------------------------------------------------------------------------------"
       echo "STEP 3: Running Timescale DB upgrade for PG $PG_MAJOR"
       echo "---------------------------------------------------------------------------------------------------------------------"
-    
-      # Start temporary server
-      echo "Starting temporary server..."
-      docker_temp_server_start "$@"
-	  echo "Started temporary server"
-      
+
       # Don't automatically abort on non-0 exit status, just in case timescaledb extension isn't installed
-      set +e
+      set +e    
+  
+      # Start temporary server
+      docker_temp_server_start "$@"
+		  
+      wait_for_ready
+      
+      RESULT=$?
+    
+      if [ "$RESULT" -eq 1 ]; then
+        echo "ERROR: Failed to start temp server cannot continue"
+        docker_temp_server_stop
+        exit 1
+      fi
+
+  	  echo "Started temporary server"
 
       LATEST_TS_VERSION=$(ls -1 /usr/lib/postgresql/$PG_MAJOR/lib/timescaledb-*.so 2>/dev/null | sed -n 's/.*timescaledb-\([0-9.]*\)\.so/\1/p' | sort -V | tail -n 1)
       # Upgrade TimescaleDB in ALL databases that have it installed
