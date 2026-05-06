@@ -1,2 +1,9 @@
+# Used by .github/workflows/postgresql.yml to push the slimmed image to
+# Docker Hub by digest only (no per-arch tag). Buildx's push-by-digest
+# exporter requires a buildx-driven build, so this passthrough Dockerfile
+# wraps the daemon-loaded slim image (passed via SRC + --build-context
+# docker-image://) so it can be re-emitted by digest. Not used by any
+# local build.
+
 ARG SRC
 FROM ${SRC}
