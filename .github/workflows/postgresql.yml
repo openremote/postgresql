@@ -121,30 +121,38 @@ jobs:
             fi
           fi
 
-          if [[ "$IS_VERSIONED" == "true" ]]; then
-            BASE_TAG="${IMAGE_NAME}:${VERSION}-${{ matrix.arch }}"
-            SLIM_TAG="${IMAGE_NAME}:${VERSION}-${{ matrix.arch }}-slim"
-          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            BASE_TAG="${IMAGE_NAME}:develop-${{ matrix.arch }}"
-            SLIM_TAG="${IMAGE_NAME}:develop-${{ matrix.arch }}-slim"
-          else
-            BASE_TAG="${IMAGE_NAME}:pr-${{ github.event.pull_request.number || github.run_number }}-${{ matrix.arch }}"
-            SLIM_TAG="${IMAGE_NAME}:pr-${{ github.event.pull_request.number || github.run_number }}-${{ matrix.arch }}-slim"
-          fi
-
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "is_versioned=$IS_VERSIONED" >> "$GITHUB_OUTPUT"
-          echo "base_tag=$BASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "slim_tag=$SLIM_TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Build base image
+      - name: Build base image (PR — load only)
+        if: github.event_name == 'pull_request'
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          load: true
-          push: false
-          tags: ${{ steps.meta.outputs.base_tag }}
+          provenance: false
+          sbom: false
+          outputs: type=docker,name=local-ci-image:latest
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=postgresql-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=postgresql-${{ matrix.arch }}
+          no-cache-filters: |
+            trimmed
+            trimmed-all
+
+      - name: Build base image (load + push by digest)
+        id: build_base
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          provenance: false
+          sbom: false
+          outputs: |
+            type=docker,name=local-ci-image:latest
+            type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             GIT_COMMIT=${{ github.sha }}
           cache-from: type=gha,scope=postgresql-${{ matrix.arch }}
@@ -157,7 +165,7 @@ jobs:
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
         id: anchore-scan
         with:
-          image: ${{ steps.meta.outputs.base_tag }}
+          image: local-ci-image:latest
           fail-build: false
           severity-cutoff: critical
 
@@ -177,14 +185,42 @@ jobs:
         shell: bash
         run: |
           chmod +x ./slim-image.sh
-          ./slim-image.sh "${{ steps.meta.outputs.base_tag }}" "${{ steps.meta.outputs.slim_tag }}" "${{ matrix.arch }}"
+          ./slim-image.sh local-ci-image:latest local-ci-image-slim:latest "${{ matrix.arch }}"
 
-      - name: Push arch images
+      - name: Push slim image by digest
+        id: push_slim
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          builder: default
+          context: .
+          file: ./Dockerfile.passthrough
+          platforms: ${{ matrix.platform }}
+          provenance: false
+          sbom: false
+          build-args: |
+            SRC=local-ci-image-slim:latest
+          build-contexts: |
+            local-ci-image-slim:latest=docker-image://local-ci-image-slim:latest
+          outputs: |
+            type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Save digests
         if: github.event_name != 'pull_request'
         shell: bash
         run: |
-          docker push "${{ steps.meta.outputs.base_tag }}"
-          docker push "${{ steps.meta.outputs.slim_tag }}"
+          mkdir -p /tmp/digests
+          echo "${{ steps.build_base.outputs.digest }}" > "/tmp/digests/base-${{ matrix.arch }}"
+          echo "${{ steps.push_slim.outputs.digest }}" > "/tmp/digests/slim-${{ matrix.arch }}"
+
+      - name: Upload digests
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
 
   create_manifests:
     name: Create manifests
@@ -193,40 +229,51 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
       - name: Log in to Docker Hub
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
           username: ${{ secrets._TEMP_DOCKERHUB_USER }}
           password: ${{ secrets._TEMP_DOCKERHUB_PASSWORD }}
 
+      - name: Download digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
       - name: Create manifest tags
         shell: bash
         run: |
+          set -euo pipefail
+
           VERSION="${{ needs.build_arch_images.outputs.version }}"
           IS_VERSIONED="${{ needs.build_arch_images.outputs.is_versioned }}"
 
+          BASE_AMD64="${IMAGE_NAME}@$(cat /tmp/digests/base-amd64)"
+          BASE_ARM64="${IMAGE_NAME}@$(cat /tmp/digests/base-arm64)"
+          SLIM_AMD64="${IMAGE_NAME}@$(cat /tmp/digests/slim-amd64)"
+          SLIM_ARM64="${IMAGE_NAME}@$(cat /tmp/digests/slim-arm64)"
+
           if [[ "$IS_VERSIONED" == "true" ]]; then
-            TAG="${IMAGE_NAME}:${VERSION}"
-            TAG_LATEST="${IMAGE_NAME}:latest"
-            TAG_AMD64="${IMAGE_NAME}:${VERSION}-amd64"
-            TAG_ARM64="${IMAGE_NAME}:${VERSION}-arm64"
+            docker buildx imagetools create \
+              -t "${IMAGE_NAME}:${VERSION}" \
+              -t "${IMAGE_NAME}:latest" \
+              "$BASE_AMD64" "$BASE_ARM64"
 
-            TAG_SLIM="${IMAGE_NAME}:${VERSION}-slim"
-            TAG_SLIM_LATEST="${IMAGE_NAME}:latest-slim"
-            TAG_SLIM_AMD64="${IMAGE_NAME}:${VERSION}-amd64-slim"
-            TAG_SLIM_ARM64="${IMAGE_NAME}:${VERSION}-arm64-slim"
-
-            docker buildx imagetools create -t "$TAG" -t "$TAG_LATEST" "$TAG_AMD64" "$TAG_ARM64"
-            docker buildx imagetools create -t "$TAG_SLIM" -t "$TAG_SLIM_LATEST" "$TAG_SLIM_AMD64" "$TAG_SLIM_ARM64"
+            docker buildx imagetools create \
+              -t "${IMAGE_NAME}:${VERSION}-slim" \
+              -t "${IMAGE_NAME}:latest-slim" \
+              "$SLIM_AMD64" "$SLIM_ARM64"
           else
-            TAG="${IMAGE_NAME}:develop"
-            TAG_AMD64="${IMAGE_NAME}:develop-amd64"
-            TAG_ARM64="${IMAGE_NAME}:develop-arm64"
+            docker buildx imagetools create \
+              -t "${IMAGE_NAME}:develop" \
+              "$BASE_AMD64" "$BASE_ARM64"
 
-            TAG_SLIM="${IMAGE_NAME}:develop-slim"
-            TAG_SLIM_AMD64="${IMAGE_NAME}:develop-amd64-slim"
-            TAG_SLIM_ARM64="${IMAGE_NAME}:develop-arm64-slim"
-
-            docker buildx imagetools create -t "$TAG" "$TAG_AMD64" "$TAG_ARM64"
-            docker buildx imagetools create -t "$TAG_SLIM" "$TAG_SLIM_AMD64" "$TAG_SLIM_ARM64"
+            docker buildx imagetools create \
+              -t "${IMAGE_NAME}:develop-slim" \
+              "$SLIM_AMD64" "$SLIM_ARM64"
           fi

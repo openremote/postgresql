@@ -1,0 +1,2 @@
+ARG SRC
+FROM ${SRC}
