@@ -230,8 +230,6 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
         fi
       fi
     fi
-
-exit 1
 	
     # STEP 2: Upgrade PostgreSQL if needed
     echo "---------------------------------------------------------------------------------------------------------------------"
