@@ -187,23 +187,80 @@ jobs:
           chmod +x ./slim-image.sh
           ./slim-image.sh local-ci-image:latest local-ci-image-slim:latest "${{ matrix.arch }}"
 
+      # The slim image lives in the host docker daemon (slim-toolkit's output).
+      # Buildx can't push it by digest: the `docker` driver reads docker-daemon
+      # images but doesn't support push-by-digest, while the `docker-container`
+      # driver supports push-by-digest but can't reach the docker daemon. We
+      # use regctl instead — it can push from a local OCI layout to a registry
+      # `repo@sha256:…` URL, leaving no tag in the registry.
+      #
+      # Cosign is installed first so regctl-installer can verify the binary's
+      # sigstore signature (the action's verification is opportunistic — it
+      # silently skips if cosign isn't on PATH).
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Install regctl
+        if: github.event_name != 'pull_request'
+        uses: regclient/actions/regctl-installer@1b705e32d40851370799ea5814e83d0a5f6a70dc # v0.1.0
+        with:
+          release: v0.11.3
+
       - name: Push slim image by digest
         id: push_slim
         if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
-        with:
-          builder: default
-          context: .
-          file: ./Dockerfile.passthrough
-          platforms: ${{ matrix.platform }}
-          provenance: false
-          sbom: false
-          build-args: |
-            SRC=local-ci-image-slim:latest
-          build-contexts: |
-            local-ci-image-slim:latest=docker-image://local-ci-image-slim:latest
-          outputs: |
-            type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+        shell: bash
+        env:
+          DOCKERHUB_USER: ${{ secrets._TEMP_DOCKERHUB_USER }}
+          DOCKERHUB_PASSWORD: ${{ secrets._TEMP_DOCKERHUB_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          cleanup() {
+            rm -f /tmp/slim.tar
+            rm -rf /tmp/slim-oci
+          }
+          trap cleanup EXIT
+
+          # regctl maintains its own credential store, separate from `docker login`.
+          echo "${DOCKERHUB_PASSWORD}" \
+            | regctl registry login docker.io --user "${DOCKERHUB_USER}" --pass-stdin
+
+          # Defense-in-depth: assert the credential persisted. Silent fallback
+          # to anonymous would let the push fail with an opaque permission error.
+          if ! regctl registry config docker.io | grep -q '"user":'; then
+            echo "regctl login did not persist user credential for docker.io" >&2
+            exit 1
+          fi
+
+          # docker save → OCI layout: regctl needs a storage backend it understands;
+          # the docker daemon isn't one, so we stage the image on disk first.
+          docker save local-ci-image-slim:latest -o /tmp/slim.tar
+          regctl image import "ocidir:///tmp/slim-oci:slim" /tmp/slim.tar
+          rm /tmp/slim.tar
+
+          # Compute the manifest digest locally so we can address the registry push
+          # by digest URL — no tag is created on Docker Hub.
+          DIGEST="$(regctl manifest digest "ocidir:///tmp/slim-oci:slim")"
+          echo "Slim digest (${{ matrix.arch }}): ${DIGEST}"
+
+          # Retry on transient registry errors (5xx, connection resets). A failed
+          # push otherwise costs a full ~15-minute matrix re-run.
+          for attempt in 1 2 3; do
+            if regctl image copy "ocidir:///tmp/slim-oci:slim" "${IMAGE_NAME}@${DIGEST}"; then
+              break
+            fi
+            if [ "${attempt}" -eq 3 ]; then
+              echo "regctl image copy failed after 3 attempts" >&2
+              exit 1
+            fi
+            sleep_for=$((attempt * 5))
+            echo "regctl image copy attempt ${attempt} failed, retrying in ${sleep_for}s..." >&2
+            sleep "${sleep_for}"
+          done
+
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Save digests
         if: github.event_name != 'pull_request'
