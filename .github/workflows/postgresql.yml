@@ -240,8 +240,16 @@ jobs:
           regctl image import "ocidir:///tmp/slim-oci:slim" /tmp/slim.tar
           rm /tmp/slim.tar
 
+          # docker save writes uncompressed layer tarballs (.tar, not .tar.gzip).
+          # Pushed as-is the slim image lands in the registry larger than the
+          # un-slimmed base. Recompress layers to gzip in place so the registry
+          # blob sizes reflect the slim toolkit's actual size win.
+          regctl image mod "ocidir:///tmp/slim-oci:slim" \
+            --layer-compress gzip --replace
+
           # Compute the manifest digest locally so we can address the registry push
-          # by digest URL — no tag is created on Docker Hub.
+          # by digest URL — no tag is created on Docker Hub. Must happen AFTER the
+          # mod step: recompressing layers changes layer digests → manifest digest.
           DIGEST="$(regctl manifest digest "ocidir:///tmp/slim-oci:slim")"
           echo "Slim digest (${{ matrix.arch }}): ${DIGEST}"
 
