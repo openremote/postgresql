@@ -11,13 +11,6 @@ POSTGIS and TimescaleDB (inc. toolkit for hyperfunctions) image built for amd64 
   `OR_DISABLE_AUTO_UPGRADE=true`
 - Auto upgrade of timescaleDB extension when a new version is available in the container; can be disabled using
   `OR_DISABLE_AUTO_UPGRADE=true`
-- OR_DISABLE_REINDEX env variable with associated scripts to determine if a REINDEX of the entire DB should be carried
-  out at first startup with existing DB (checks whether or not `$PGDATA/OR_REINDEX_COUNTER.$OR_REINDEX_COUNTER` exists).
-  This is used when a collation change has occurred (glibc version change, muslc <-> glibc) which can break the indexes;
-  migration can either be manually handled or auto handled depending on OR_DISABLE_REINDEX env variable value.
-  NOTE THAT A REINDEX CAN TAKE A LONG TIME DEPENDING ON THE SIZE OF THE DB! And startup will be delayed until completed.
-  This functionality is intended to simplify migration for basic users; advanced users with large DBs should take care of this
-  themselves.
 - **Slimmed images** using [slim toolkit](https://github.com/slimtoolkit/slim) to reduce image size by ~60%
 
 ## Local Development
