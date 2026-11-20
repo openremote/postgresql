@@ -31,6 +31,12 @@ if [ $POSTGRES_MAX_CONNECTIONS -gt 0 ]; then
   set -- "$@" -c max_connections=${POSTGRES_MAX_CONNECTIONS}
 fi
 
+# Terminate sessions left idle in a transaction for longer than this, as they prevent autovacuum removing dead rows
+# (set to 0 to disable this setting)
+if [ -n "$POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT" ] && [ "$POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT" != "0" ]; then
+  set -- "$@" -c idle_in_transaction_session_timeout=${POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT}
+fi
+
 wait_for_ready() {
   # Wait for connectivity first
   until pg_isready -q; do

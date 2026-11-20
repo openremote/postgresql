@@ -5,6 +5,9 @@ POSTGIS and TimescaleDB (inc. toolkit for hyperfunctions) image built for amd64 
 
 - OR specific ENV variables and a healthcheck added
 - Easy configuration of `max_connections` using `POSTGRES_MAX_CONNECTIONS` environment variable (set to `-1` to disable this setting)
+- Sessions left idle in a transaction for more than 10 minutes are terminated, as they prevent autovacuum removing dead rows
+  and cause table bloat; configure using `POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT` environment variable with a
+  PostgreSQL time value e.g. `30min` (set to `0` to disable this setting)
 - PGDATA path set to match old Alpine image (for ease of DB migration)
 - POSTGRES user UID and GID changed to match old Alpine image (for ease of DB migration)
 - Auto upgrade of database with PG major version changes from previous PG major version; can be disabled using
