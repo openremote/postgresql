@@ -110,7 +110,20 @@ ENV PGROOT=/var/lib/postgresql \
     OR_DISABLE_REINDEX=${OR_DISABLE_REINDEX:-false} \
     POSTGRES_MAX_CONNECTIONS=${POSTGRES_MAX_CONNECTIONS:-50} \
     POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT=${POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT:-10min} \
-    OR_DISABLE_AUTO_UPGRADE=${OR_DISABLE_AUTO_UPGRADE:-false}
+    OR_DISABLE_AUTO_UPGRADE=${OR_DISABLE_AUTO_UPGRADE:-false} \
+    # Memory settings sized for a 4 GB host giving PostgreSQL a ~768 MB container memory limit; scale these with the
+    # limit (shared_buffers ~25%, effective_cache_size ~75%, maintenance_work_mem ~1/12). Set to an empty value to use
+    # postgresql.conf instead
+    POSTGRES_SHARED_BUFFERS=192MB \
+    POSTGRES_EFFECTIVE_CACHE_SIZE=576MB \
+    POSTGRES_MAINTENANCE_WORK_MEM=64MB \
+    POSTGRES_WORK_MEM=4MB \
+    # Diagnostics logging; set POSTGRES_LOG_MIN_DURATION_STATEMENT=-1 to disable slow statement and plan logging.
+    # The prefix has no timestamp as Docker timestamps every log line
+    POSTGRES_LOG_LINE_PREFIX="[%p] [%h] " \
+    POSTGRES_LOG_MIN_DURATION_STATEMENT=5s \
+    POSTGRES_LOG_LOCK_WAITS=on \
+    POSTGRES_LOG_TEMP_FILES=10MB
 
 WORKDIR /var/lib/postgresql
 VOLUME /var/lib/postgresql/data

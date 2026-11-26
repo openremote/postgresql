@@ -26,15 +26,52 @@
 source /docker-entrypoint.sh
 docker_setup_env
 
-# Append max connections arg if needed
-if [ $POSTGRES_MAX_CONNECTIONS -gt 0 ]; then
-  set -- "$@" -c max_connections=${POSTGRES_MAX_CONNECTIONS}
+# ------------------------------------------------------------------------------
+# Server settings from POSTGRES_* environment variables (defaults are in the Dockerfile and are sized for a
+# 4 GB host giving PostgreSQL a ~768 MB memory limit). Setting a variable to an empty value or -1 leaves the
+# setting to postgresql.conf / ALTER SYSTEM instead.
+# ------------------------------------------------------------------------------
+OR_ARGS=()
+
+# Adds "-c name=value" unless value is empty or -1
+add_setting() {
+  case "$2" in ""|-1) return ;; esac
+  OR_ARGS+=(-c "$1=$2")
+}
+
+# max_connections of 0 or less is not valid, so treat it as disabled too
+if [[ "$POSTGRES_MAX_CONNECTIONS" =~ ^[0-9]+$ ]] && [ "$POSTGRES_MAX_CONNECTIONS" -gt 0 ]; then
+  add_setting max_connections "$POSTGRES_MAX_CONNECTIONS"
 fi
 
 # Terminate sessions left idle in a transaction for longer than this, as they prevent autovacuum removing dead rows
-# (set to 0 to disable this setting)
-if [ -n "$POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT" ] && [ "$POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT" != "0" ]; then
-  set -- "$@" -c idle_in_transaction_session_timeout=${POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT}
+# (0 disables the timeout)
+add_setting idle_in_transaction_session_timeout "$POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT"
+
+# Memory
+add_setting shared_buffers       "$POSTGRES_SHARED_BUFFERS"
+add_setting effective_cache_size "$POSTGRES_EFFECTIVE_CACHE_SIZE"
+add_setting maintenance_work_mem "$POSTGRES_MAINTENANCE_WORK_MEM"
+add_setting work_mem             "$POSTGRES_WORK_MEM"
+
+# Diagnostics logging
+add_setting log_line_prefix            "$POSTGRES_LOG_LINE_PREFIX"
+add_setting log_min_duration_statement "$POSTGRES_LOG_MIN_DURATION_STATEMENT"
+add_setting log_lock_waits             "$POSTGRES_LOG_LOCK_WAITS"
+add_setting log_temp_files             "$POSTGRES_LOG_TEMP_FILES"
+# Also log the plan (no ANALYZE, so no overhead on fast queries) of statements logged as slow
+if [ -n "$POSTGRES_LOG_MIN_DURATION_STATEMENT" ] && [ "$POSTGRES_LOG_MIN_DURATION_STATEMENT" != "-1" ]; then
+  add_setting session_preload_libraries   "auto_explain"
+  add_setting auto_explain.log_min_duration "$POSTGRES_LOG_MIN_DURATION_STATEMENT"
+fi
+
+# Insert the settings straight after "postgres" so any -c arguments given in the container command come later and win
+if [ "$1" = "postgres" ]; then
+  shift
+  set -- postgres "${OR_ARGS[@]}" "$@"
+elif [ "${1:0:1}" = "-" ]; then
+  # Flags only; docker-entrypoint.sh prepends "postgres"
+  set -- "${OR_ARGS[@]}" "$@"
 fi
 
 wait_for_ready() {
@@ -450,4 +487,4 @@ if [ -n "$DATABASE_ALREADY_EXISTS" ]; then
     fi
 fi
 
-exec /usr/local/bin/docker-entrypoint.sh $@
+exec /usr/local/bin/docker-entrypoint.sh "$@"

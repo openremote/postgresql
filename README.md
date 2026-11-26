@@ -8,6 +8,8 @@ POSTGIS and TimescaleDB (inc. toolkit for hyperfunctions) image built for amd64 
 - Sessions left idle in a transaction for more than 10 minutes are terminated, as they prevent autovacuum removing dead rows
   and cause table bloat; configure using `POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT` environment variable with a
   PostgreSQL time value e.g. `30min` (set to `0` to disable this setting)
+- Memory settings with defaults sized for a 4 GB host giving PostgreSQL a ~768 MB container memory limit (see below)
+- Diagnostics logging of slow statements (with their plans), lock waits and temp file spills (see below)
 - PGDATA path set to match old Alpine image (for ease of DB migration)
 - POSTGRES user UID and GID changed to match old Alpine image (for ease of DB migration)
 - Auto upgrade of database with PG major version changes from previous PG major version; can be disabled using
@@ -15,6 +17,31 @@ POSTGIS and TimescaleDB (inc. toolkit for hyperfunctions) image built for amd64 
 - Auto upgrade of timescaleDB extension when a new version is available in the container; can be disabled using
   `OR_DISABLE_AUTO_UPGRADE=true`
 - **Slimmed images** using [slim toolkit](https://github.com/slimtoolkit/slim) to reduce image size by ~60%
+
+## Server settings
+
+These environment variables are passed to PostgreSQL as `-c` arguments. They come before any arguments in the container
+command, so a `-c` given there takes precedence. Set a variable to an empty value or `-1` to leave the setting to
+`postgresql.conf` / `ALTER SYSTEM` instead.
+
+The memory defaults suit a 4 GB host where PostgreSQL has a ~768 MB container memory limit. For other limits, scale them:
+`shared_buffers` ~25% of the limit, `effective_cache_size` ~75% and `maintenance_work_mem` ~1/12.
+
+| Environment variable | PostgreSQL setting | Default |
+|---|---|---|
+| `POSTGRES_MAX_CONNECTIONS` | `max_connections` | `50` |
+| `POSTGRES_IDLE_IN_TRANSACTION_SESSION_TIMEOUT` | `idle_in_transaction_session_timeout` | `10min` |
+| `POSTGRES_SHARED_BUFFERS` | `shared_buffers` | `192MB` |
+| `POSTGRES_EFFECTIVE_CACHE_SIZE` | `effective_cache_size` | `576MB` |
+| `POSTGRES_MAINTENANCE_WORK_MEM` | `maintenance_work_mem` | `64MB` |
+| `POSTGRES_WORK_MEM` | `work_mem` | `4MB` |
+| `POSTGRES_LOG_LINE_PREFIX` | `log_line_prefix` (backend PID and client host; Docker adds the timestamp) | `[%p] [%h] ` |
+| `POSTGRES_LOG_MIN_DURATION_STATEMENT` | `log_min_duration_statement`, and `auto_explain.log_min_duration` with `auto_explain` loaded through `session_preload_libraries` | `5s` |
+| `POSTGRES_LOG_LOCK_WAITS` | `log_lock_waits` | `on` |
+| `POSTGRES_LOG_TEMP_FILES` | `log_temp_files` | `10MB` |
+
+`shared_buffers` does not live in `/dev/shm`, so the container's `shm_size` does not need to grow with it; `/dev/shm` is
+only used for dynamic shared memory such as parallel query.
 
 ## Local Development
 
