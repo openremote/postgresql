@@ -59,6 +59,7 @@ add_setting log_line_prefix            "$POSTGRES_LOG_LINE_PREFIX"
 add_setting log_min_duration_statement "$POSTGRES_LOG_MIN_DURATION_STATEMENT"
 add_setting log_lock_waits             "$POSTGRES_LOG_LOCK_WAITS"
 add_setting log_temp_files             "$POSTGRES_LOG_TEMP_FILES"
+add_setting log_checkpoints            "$POSTGRES_LOG_CHECKPOINTS"
 # Also log the plan (no ANALYZE, so no overhead on fast queries) of statements logged as slow
 if [ -n "$POSTGRES_LOG_MIN_DURATION_STATEMENT" ] && [ "$POSTGRES_LOG_MIN_DURATION_STATEMENT" != "-1" ]; then
   add_setting session_preload_libraries   "auto_explain"

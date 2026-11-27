@@ -123,7 +123,9 @@ ENV PGROOT=/var/lib/postgresql \
     POSTGRES_LOG_LINE_PREFIX="[%p] [%h] " \
     POSTGRES_LOG_MIN_DURATION_STATEMENT=5s \
     POSTGRES_LOG_LOCK_WAITS=on \
-    POSTGRES_LOG_TEMP_FILES=10MB
+    POSTGRES_LOG_TEMP_FILES=10MB \
+    # Checkpoint logging is on by default since PostgreSQL 15 and logs two lines every checkpoint_timeout (5min)
+    POSTGRES_LOG_CHECKPOINTS=off
 
 WORKDIR /var/lib/postgresql
 VOLUME /var/lib/postgresql/data

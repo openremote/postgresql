@@ -39,6 +39,7 @@ The memory defaults suit a 4 GB host where PostgreSQL has a ~768 MB container me
 | `POSTGRES_LOG_MIN_DURATION_STATEMENT` | `log_min_duration_statement`, and `auto_explain.log_min_duration` with `auto_explain` loaded through `session_preload_libraries` | `5s` |
 | `POSTGRES_LOG_LOCK_WAITS` | `log_lock_waits` | `on` |
 | `POSTGRES_LOG_TEMP_FILES` | `log_temp_files` | `10MB` |
+| `POSTGRES_LOG_CHECKPOINTS` | `log_checkpoints` | `off` |
 
 `shared_buffers` does not live in `/dev/shm`, so the container's `shm_size` does not need to grow with it; `/dev/shm` is
 only used for dynamic shared memory such as parallel query.
